@@ -64,14 +64,12 @@ def main():
     I = np.ones(n_rods)
     r = np.array([0, 0.1, 0])
     omega = np.ones(n_rods)
-    v = np.zeros((n_rods, 2))
-    v[:, 0] = omega * (np.arange(n_rods)+0.5)
 
     dt = 0.001
     T = 5
     fps = 30
 
-    launcher = Launcher(theta, l_mag, c_mag, m, I, r, v, omega)
+    launcher = Launcher(theta, l_mag, c_mag, m, I, r, omega)
     launcher.simulate(dt, T)
 
     print('simulation done, generating video')

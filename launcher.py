@@ -7,7 +7,7 @@ g = np.array([0, -9.81])
 
 class Launcher:
 
-    def __init__(self, theta, l_mag, c_mag, m, I, r, v=None, omega=None, use_gravity=False):
+    def __init__(self, theta, l_mag, c_mag, m, I, r, omega=None, use_gravity=False):
 
         self.dt = None
         self.use_gravity = use_gravity
@@ -20,21 +20,22 @@ class Launcher:
         self.I = I
         self.r = r
 
-        if v is None:
-            self.v = np.zeros((self.n_joints, 2))
-        else:
-            self.v = v
         if omega is None:
             self.omega = np.zeros(self.n_joints)
         else:
             self.omega = omega
 
-        self.pos = np.zeros((self.n_joints, 2))
+        self.pos = np.empty((self.n_joints, 2))
+        self.v = np.empty((self.n_joints, 2))
         rod_end = np.zeros(2)
+        v_rod_end = np.zeros(2)
         for i in range(self.n_joints):
             theta = self.theta[i]
             self.pos[i] = rod_end + self.c_mag[i]*np.array([np.cos(theta), np.sin(theta)])
             rod_end += self.l_mag[i]*np.array([np.cos(theta), np.sin(theta)])
+
+            self.v[i] = v_rod_end + self.c_mag[i]*self.omega[i]*np.array([-np.sin(theta), np.cos(theta)])
+            v_rod_end += self.l_mag[i]*self.omega[i]*np.array([-np.sin(theta), np.cos(theta)])
 
         self.pos_history = None
         self.theta_history = None
