@@ -3,22 +3,23 @@ import scipy
 
 
 g = np.array([0, -9.81])
+g_mag = np.linalg.norm(g)
 
 
 class Launcher:
 
-    def __init__(self, theta, l_mag, c_mag, m, I, r, omega=None, use_gravity=False):
+    def __init__(self, theta, l_mag, c_mag, m, I, r_mag, m_weight, h, k, omega=None, use_gravity=False):
 
         self.dt = None
         self.use_gravity = use_gravity
 
         self.n_joints = len(theta)
         self.theta = theta
+        self.theta1_initial = self.theta[0]
         self.l_mag = l_mag
         self.c_mag = c_mag
         self.m = m
         self.I = I
-        self.r = r
 
         if omega is None:
             self.omega = np.zeros(self.n_joints)
@@ -37,34 +38,71 @@ class Launcher:
             self.v[i] = v_rod_end + self.c_mag[i]*self.omega[i]*np.array([-np.sin(theta), np.cos(theta)])
             v_rod_end += self.l_mag[i]*self.omega[i]*np.array([-np.sin(theta), np.cos(theta)])
 
+        self.r_mag = r_mag
+        self.r = np.array([0.0, self.r_mag, 0.0])
+        self.m_weight = m_weight
+        self.h = h
+        self.k = k
+
+        self.pos_weight = 0
+        self.v_weight = -np.sqrt(2*self.h*g_mag)
+        self.rubber_band_height = 0
+
         self.pos_history = None
         self.theta_history = None
+        self.pos_weight_history = None
+        self.rubber_band_height_history = None
 
     def simulate(self, dt, simulation_length):
 
-        E_start = np.sum(0.5*self.m*np.linalg.norm(self.v)**2 + 0.5*self.I*self.omega**2)
+        E_start = 0.5*(np.sum(self.m*np.linalg.norm(self.v, axis=1)**2 + self.I*self.omega**2)
+                       + self.m_weight*self.v_weight**2)
 
         self.dt = dt
         n_steps = int(simulation_length/dt)
 
-        self.pos_history = np.empty((n_steps, self.n_joints, 2))
-        self.theta_history = np.empty((n_steps, self.n_joints))
+        self.pos_history = np.empty((n_steps+1, self.n_joints, 2))
+        self.theta_history = np.empty((n_steps+1, self.n_joints))
+        self.pos_weight_history = np.empty(n_steps+1)
+        self.rubber_band_height_history = np.empty(n_steps+1)
+
+        self.pos_history[0] = self.pos
+        self.theta_history[0] = self.theta
+        self.pos_weight_history[0] = self.pos_weight
+        self.rubber_band_height_history[0] = self.rubber_band_height
 
         for i in range(n_steps):
             self.step()
-            self.pos_history[i] = self.pos
-            self.theta_history[i] = self.theta
 
-        E_end = np.sum(0.5*self.m*np.linalg.norm(self.v)**2 + 0.5*self.I*self.omega**2)
+            self.pos_history[i+1] = self.pos
+            self.theta_history[i+1] = self.theta
+            self.pos_weight_history[i+1] = self.pos_weight
+            self.rubber_band_height_history[i+1] = self.rubber_band_height
+
+        if self.pos_weight >= self.rubber_band_height:
+            E_spring = 0
+        else:
+            E_spring = 0.5*self.k*(self.rubber_band_height-self.pos_weight)**2
+
+        E_weight_pot = self.m_weight*g_mag*self.pos_weight
+        E_end = 0.5*(np.sum(self.m*np.linalg.norm(self.v, axis=1)**2 + self.I*self.omega**2)
+                     + self.m_weight*self.v_weight**2) + E_spring + E_weight_pot
 
         print('delta E')
-        print(E_start-E_end)
-        print((E_start-E_end)/E_start)
+        print(E_end-E_start)
+        print((E_end-E_start)/E_start)
 
         return self.pos_history, self.theta_history
 
     def step(self):
-        T = np.zeros(2)
+
+        self.rubber_band_height = -self.r_mag*(self.theta[0]-self.theta1_initial)
+        if self.pos_weight >= self.rubber_band_height:
+            T_mag = 0
+        else:
+            T_mag = self.k*(self.rubber_band_height-self.pos_weight)
+        T = np.array([-T_mag, 0])
+
         F = np.zeros(2)
         N = self.solve_normal_forces(T, F)
 
@@ -80,6 +118,10 @@ class Launcher:
 
         self.pos += self.v*self.dt
         self.v += a*self.dt
+
+        a_weight = g[1] + T_mag/self.m_weight
+        self.pos_weight += self.v_weight*self.dt
+        self.v_weight += a_weight*self.dt
 
         l = (self.l_mag * np.array([np.cos(self.theta), np.sin(self.theta), np.zeros(self.n_joints)]))
         c = -self.c_mag/self.l_mag * l
