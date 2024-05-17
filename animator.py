@@ -58,23 +58,23 @@ class Animator:
 
         self.video.release()
 
-    def draw_launcher(self, history_idx, draw_weight=True, save_video=True):
+    def draw_launcher(self, history_idx, draw_weight=True, save_to_video=True):
 
         pos = self.launcher.pos_history[history_idx]
         theta = self.launcher.theta_history[history_idx]
 
         if draw_weight:
             weight_start_y = self.launcher.r[1]
-            pos_weight = self.launcher.pos_weight_history[history_idx]
-            rubber_band_height = self.launcher.rubber_band_height_history[history_idx]
-            weight_y = weight_start_y + pos_weight - self.launcher.h
+            h_weight = self.launcher.h_weight_history[history_idx]
+            h_rubber_band = self.launcher.h_rubber_band_history[history_idx]
+            weight_y = weight_start_y + h_weight - self.launcher.h
 
-            if pos_weight >= rubber_band_height:
+            if h_weight >= h_rubber_band:
                 self.rope_vertical.set_data([self.weight_x, self.weight_x], [weight_start_y, weight_y])
                 self.rubber_band.set_data([], [])
 
             else:
-                rubber_band_top_y = weight_start_y - self.launcher.h + rubber_band_height
+                rubber_band_top_y = weight_start_y + h_rubber_band - self.launcher.h
                 self.rope_vertical.set_data([self.weight_x, self.weight_x], [weight_start_y, rubber_band_top_y])
                 self.rubber_band.set_data([self.weight_x, self.weight_x], [rubber_band_top_y, weight_y])
 
@@ -91,14 +91,14 @@ class Animator:
 
             self.rod_lines[i].set_data([start[0], end[0]], [[start[1], end[1]]])
 
-        if save_video:
+        if save_to_video:
             self.canvas_to_video_frame()
 
     def animate_weight_initial_fall(self):
 
-        self.draw_launcher(0, draw_weight=False, save_video=False)
+        self.draw_launcher(0, draw_weight=False, save_to_video=False)
 
-        t_fall = np.sqrt(2*self.launcher.h/g_mag)
+        t_fall = np.sqrt(2*(self.launcher.h-self.launcher.h_rubber_band_initial)/g_mag)
         t_fall_steps = np.arange(0, t_fall, 1/self.fps)
 
         weight_start_y = self.launcher.r[1]
@@ -114,7 +114,7 @@ class Animator:
     def canvas_to_video_frame(self):
         self.fig.canvas.draw()
         img = np.array(self.fig.canvas.renderer.buffer_rgba())
-        img = img[:, :, :-1]
+        img = cv2.cvtColor(img[:, :, :-1], cv2.COLOR_RGB2BGR)
         self.video.write(img)
 
 
@@ -129,13 +129,13 @@ def main():
     r_mag = 0.1
     m_weight = 10.0
     h = 1.0
+    h_rubber_band = 0.5
     k = 50.0
-    omega = np.zeros(n_rods)
 
     dt = 0.001
     T = 5
 
-    launcher = Launcher(theta, l_mag, c_mag, m, I, r_mag, m_weight, h, k, omega)
+    launcher = Launcher(theta, l_mag, c_mag, m, I, r_mag, m_weight, h, h_rubber_band, k)
     launcher.simulate(dt, T)
 
     print('simulation done, generating video')

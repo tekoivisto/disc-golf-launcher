@@ -8,7 +8,7 @@ g_mag = np.linalg.norm(g)
 
 class Launcher:
 
-    def __init__(self, theta, l_mag, c_mag, m, I, r_mag, m_weight, h, k, omega=None, use_gravity=False):
+    def __init__(self, theta, l_mag, c_mag, m, I, r_mag, m_weight, h, h_rubber_band, k, omega=None, use_gravity=False):
 
         self.dt = None
         self.use_gravity = use_gravity
@@ -42,65 +42,62 @@ class Launcher:
         self.r = np.array([0.0, self.r_mag, 0.0])
         self.m_weight = m_weight
         self.h = h
+        self.h_rubber_band = h_rubber_band
+        self.h_rubber_band_initial = self.h_rubber_band
         self.k = k
 
-        self.pos_weight = 0
-        self.v_weight = -np.sqrt(2*self.h*g_mag)
-        self.rubber_band_height = 0
+        self.h_weight = h_rubber_band
+        self.v_weight = -np.sqrt(2*g_mag*(self.h-self.h_rubber_band))
+        self.energy_lost_to_ground = 0.0
 
         self.pos_history = None
         self.theta_history = None
-        self.pos_weight_history = None
-        self.rubber_band_height_history = None
+        self.h_weight_history = None
+        self.h_rubber_band_history = None
 
     def simulate(self, dt, simulation_length):
 
-        E_start = 0.5*(np.sum(self.m*np.linalg.norm(self.v, axis=1)**2 + self.I*self.omega**2)
-                       + self.m_weight*self.v_weight**2)
+        E_start = self.calculate_total_energy()
 
         self.dt = dt
         n_steps = int(simulation_length/dt)
 
         self.pos_history = np.empty((n_steps+1, self.n_joints, 2))
         self.theta_history = np.empty((n_steps+1, self.n_joints))
-        self.pos_weight_history = np.empty(n_steps+1)
-        self.rubber_band_height_history = np.empty(n_steps+1)
+        self.h_weight_history = np.empty(n_steps+1)
+        self.h_rubber_band_history = np.empty(n_steps+1)
 
         self.pos_history[0] = self.pos
         self.theta_history[0] = self.theta
-        self.pos_weight_history[0] = self.pos_weight
-        self.rubber_band_height_history[0] = self.rubber_band_height
+        self.h_weight_history[0] = self.h_weight
+        self.h_rubber_band_history[0] = self.h_rubber_band
 
         for i in range(n_steps):
             self.step()
 
             self.pos_history[i+1] = self.pos
             self.theta_history[i+1] = self.theta
-            self.pos_weight_history[i+1] = self.pos_weight
-            self.rubber_band_height_history[i+1] = self.rubber_band_height
+            self.h_weight_history[i+1] = self.h_weight
+            self.h_rubber_band_history[i+1] = self.h_rubber_band
 
-        if self.pos_weight >= self.rubber_band_height:
-            E_spring = 0
-        else:
-            E_spring = 0.5*self.k*(self.rubber_band_height-self.pos_weight)**2
+        E_end = self.calculate_total_energy()
 
-        E_weight_pot = self.m_weight*g_mag*self.pos_weight
-        E_end = 0.5*(np.sum(self.m*np.linalg.norm(self.v, axis=1)**2 + self.I*self.omega**2)
-                     + self.m_weight*self.v_weight**2) + E_spring + E_weight_pot
-
-        print('delta E')
-        print(E_end-E_start)
-        print((E_end-E_start)/E_start)
+        print(f'delta E (J):                {E_end-E_start:.3f}')
+        print(f'fractional energy increase: {(E_end-E_start)/E_start:.3e}')
 
         return self.pos_history, self.theta_history
 
     def step(self):
 
-        self.rubber_band_height = -self.r_mag*(self.theta[0]-self.theta1_initial)
-        if self.pos_weight >= self.rubber_band_height:
+        if self.h_weight < 0 and self.v_weight < 0:
+            self.energy_lost_to_ground += 0.5*self.m_weight*self.v_weight**2
+            self.v_weight = 0
+
+        self.h_rubber_band = self.h_rubber_band_initial - self.r_mag*(self.theta[0]-self.theta1_initial)
+        if self.h_weight >= self.h_rubber_band:
             T_mag = 0
         else:
-            T_mag = self.k*(self.rubber_band_height-self.pos_weight)
+            T_mag = self.k*(self.h_rubber_band-self.h_weight)
         T = np.array([-T_mag, 0])
 
         F = np.zeros(2)
@@ -120,8 +117,9 @@ class Launcher:
         self.v += a*self.dt
 
         a_weight = g[1] + T_mag/self.m_weight
-        self.pos_weight += self.v_weight*self.dt
-        self.v_weight += a_weight*self.dt
+        self.h_weight += self.v_weight*self.dt
+        if self.h_weight > 0 or a_weight > 0:
+            self.v_weight += a_weight*self.dt
 
         l = (self.l_mag * np.array([np.cos(self.theta), np.sin(self.theta), np.zeros(self.n_joints)]))
         c = -self.c_mag/self.l_mag * l
@@ -216,3 +214,20 @@ class Launcher:
         N[:, 1] = N_sol[1::2, 0]
 
         return N
+
+    def calculate_total_energy(self):
+
+        E_trans_weight = 0.5*self.m_weight*self.v_weight**2
+        E_pot_weight = self.m_weight * g_mag * self.h_weight
+        if self.h_weight >= self.h_rubber_band:
+            E_spring = 0
+        else:
+            E_spring = 0.5*self.k*(self.h_rubber_band-self.h_weight)**2
+
+        E_trans_rods = 0.5*np.sum(self.m*np.sum(self.v**2, axis=1), axis=0)
+        E_rot_rods = 0.5*np.sum(self.I*self.omega**2)
+
+        E_tot = self.energy_lost_to_ground + E_trans_weight + E_pot_weight + E_spring + E_trans_rods + E_rot_rods
+
+        return E_tot
+
