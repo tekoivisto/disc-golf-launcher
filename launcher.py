@@ -6,6 +6,17 @@ g = np.array([0, -9.81])
 g_mag = np.linalg.norm(g)
 
 
+def cross_vec(a, b):
+    """Faster than np.cross when operating on single vectors instead
+    of arrays of vectors"""
+    return a[0]*b[1] - a[1]*b[0]
+
+
+def cross_arr(a, b):
+    """Faster than np.cross when operating on small arrays of vectors"""
+    return a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+
+
 class Launcher:
 
     def __init__(self, theta, l_mag, c_mag, m, I, r_mag, m_weight, h, h_rubber_band, k, omega=None, use_gravity=False):
@@ -21,6 +32,7 @@ class Launcher:
         self.c = None
         self.d = None
         self.m = m
+        self.mT = self.m.reshape(-1, 1)
         self.I = I
 
         if omega is None:
@@ -33,15 +45,15 @@ class Launcher:
         rod_end = np.zeros(2)
         v_rod_end = np.zeros(2)
         for i in range(self.n_joints):
-            theta = self.theta[i]
-            self.pos[i] = rod_end + self.c_mag[i]*np.array([np.cos(theta), np.sin(theta)])
-            rod_end += self.l_mag[i]*np.array([np.cos(theta), np.sin(theta)])
+            theta_i = self.theta[i]
+            self.pos[i] = rod_end + self.c_mag[i]*np.array([np.cos(theta_i), np.sin(theta_i)])
+            rod_end += self.l_mag[i]*np.array([np.cos(theta_i), np.sin(theta_i)])
 
-            self.v[i] = v_rod_end + self.c_mag[i]*self.omega[i]*np.array([-np.sin(theta), np.cos(theta)])
-            v_rod_end += self.l_mag[i]*self.omega[i]*np.array([-np.sin(theta), np.cos(theta)])
+            self.v[i] = v_rod_end + self.c_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
+            v_rod_end += self.l_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
 
         self.r_mag = r_mag
-        self.r = np.array([0.0, self.r_mag, 0.0])
+        self.r = np.array([0.0, self.r_mag])
         self.m_weight = m_weight
         self.h = h
         self.h_rubber_band = h_rubber_band
@@ -69,7 +81,6 @@ class Launcher:
         for i in range(n_steps):
 
             self.step()
-
             self.update_history(i)
 
         E_end = self.calculate_total_energy()
@@ -119,22 +130,17 @@ class Launcher:
         F_tot[-1] += F
 
         if self.use_gravity:
-            F_tot += self.m.reshape(-1, 1)*g
+            F_tot += self.mT*g
 
-        return F_tot / self.m.reshape(-1, 1)
+        return F_tot / self.mT
 
     def calc_alpha(self, N, T, F):
 
-        c = self.c.T
-        d = self.d.T
+        tau = cross_arr(self.c, N)
+        tau[:-1] -= cross_arr(self.d[:-1], N[1:])
 
-        N = np.hstack((N, np.zeros((self.n_joints, 1))))
-
-        tau = np.cross(c, N)[:, -1]
-        tau[:-1] -= np.cross(d[:-1], N[1:])[:, -1]
-
-        tau[-1] += np.cross(d[-1], np.hstack((F, [0])))[-1]
-        tau[0] += np.cross(c[0]+self.r, np.hstack((T, [0])))[-1]
+        tau[-1] += cross_vec(self.d[-1], F)
+        tau[0] += cross_vec(self.c[0]+self.r, T)
 
         return tau / self.I
 
@@ -152,13 +158,14 @@ class Launcher:
 
     def solve_normal_forces(self, T, F):
 
-        unit_vecs = np.array([np.cos(self.theta), np.sin(self.theta), np.zeros(self.n_joints)])
-        self.c = - self.c_mag*unit_vecs
-        self.d = (self.l_mag - self.c_mag) * unit_vecs
-        cx = self.c[0]
-        cy = self.c[1]
-        dx = self.d[0]
-        dy = self.d[1]
+        unit_vecs = np.array([np.cos(self.theta), np.sin(self.theta)])
+        self.c = - (self.c_mag*unit_vecs).T
+        self.d = ((self.l_mag - self.c_mag) * unit_vecs).T
+
+        cx = self.c[:, 0]
+        cy = self.c[:, 1]
+        dx = self.d[:, 0]
+        dy = self.d[:, 1]
 
         px = 1/self.m[:-1] + cy[:-1]*dy[:-1]/self.I[:-1]
         py = 1/self.m[:-1] + cx[:-1]*dx[:-1]/self.I[:-1]
@@ -166,14 +173,14 @@ class Launcher:
         qx = - cx[:-1]*dy[:-1]/self.I[:-1]
         qy = - cy[:-1]*dx[:-1]/self.I[:-1]
 
-        rx = np.zeros(self.n_joints)
-        ry = np.zeros(self.n_joints)
+        rx = np.empty(self.n_joints)
+        ry = np.empty(self.n_joints)
         rx[1:] = - 1/self.m[1:] - 1/self.m[:-1] - cy[1:]**2/self.I[1:] - dy[:-1]**2/self.I[:-1]
         ry[1:] = - 1/self.m[1:] - 1/self.m[:-1] - cx[1:]**2/self.I[1:] - dx[:-1]**2/self.I[:-1]
         rx[0] = - 1/self.m[0] - cy[0]**2/self.I[0]
         ry[0] = - 1/self.m[0] - cx[0]**2/self.I[0]
 
-        s = np.zeros(self.n_joints)
+        s = np.empty(self.n_joints)
         s[1:] = cx[1:]*cy[1:]/self.I[1:] + dx[:-1]*dy[:-1]/self.I[:-1]
         s[0] = cx[0]*cy[0]/self.I[0]
 
@@ -183,8 +190,8 @@ class Launcher:
         ux = - dx*cy/self.I
         uy = - dy*cx/self.I
 
-        vx = np.zeros(self.n_joints)
-        vy = np.zeros(self.n_joints)
+        vx = np.empty(self.n_joints)
+        vy = np.empty(self.n_joints)
         vx[1:] = self.omega[:-1]**2*dx[:-1] - self.omega[1:]**2*cx[1:]
         vy[1:] = self.omega[:-1]**2*dy[:-1] - self.omega[1:]**2*cy[1:]
         vx[-1] += tx[-1]*F[0] + ux[-1]*F[1]
@@ -212,14 +219,14 @@ class Launcher:
         A_band[5, 0:-2:2] = px
         A_band[5, 1:-2:2] = py
         A_band[6, 0:-3:2] = qy
-        v = np.zeros((2*self.n_joints, 1))
+        v = np.empty((2*self.n_joints, 1))
         v[::2, 0] = vx
         v[1::2, 0] = vy
 
         # !!!
-        N_sol = scipy.linalg.solve_banded((3, 3), A_band, v)
+        N_sol = scipy.linalg.solve_banded((3, 3), A_band, v, overwrite_ab=True, overwrite_b=True, check_finite=False)
 
-        N = np.zeros((self.n_joints, 2))
+        N = np.empty((self.n_joints, 2))
         N[:, 0] = N_sol[::2, 0]
         N[:, 1] = N_sol[1::2, 0]
 
