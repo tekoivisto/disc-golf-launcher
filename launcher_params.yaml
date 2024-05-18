@@ -1,0 +1,13 @@
+# angles in degrees, rest in SI units
+
+theta: [-90, -90, -90, -90]
+rod_length: [1, 1, 1, 1]
+rod_com: [0.5, 0.5, 0.5, 0.5]
+rod_m: [1, 1, 1, 1]
+# optional: rod_I, omega
+
+weight_m: 10.0
+weight_h: 1.0
+rubber_band_h: 0.5
+rubber_band_k: 1500.0
+winch_r: 0.3

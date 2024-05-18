@@ -8,7 +8,7 @@ g_mag = np.linalg.norm(g)
 
 def cross_vec(a, b):
     """Faster than np.cross when operating on single vectors instead
-    of arrays of vectors"""
+    of large arrays of vectors"""
     return a[0]*b[1] - a[1]*b[0]
 
 
@@ -19,26 +19,30 @@ def cross_arr(a, b):
 
 class Launcher:
 
-    def __init__(self, theta, l_mag, c_mag, m, I, r_mag, m_weight, h, h_rubber_band, k, omega=None, use_gravity=False):
+    def __init__(self, params, use_gravity=False):
 
         self.dt = None
         self.use_gravity = use_gravity
 
-        self.n_joints = len(theta)
-        self.theta = theta
+        self.theta = np.deg2rad(np.array(params['theta']))
         self.theta1_initial = self.theta[0]
-        self.l_mag = l_mag
-        self.c_mag = c_mag
+        self.l_mag = np.array(params['rod_length'])
+        self.c_mag = np.array(params['rod_com'])
         self.c = None
         self.d = None
-        self.m = m
+        self.m = np.array(params['rod_m'])
         self.mT = self.m.reshape(-1, 1)
-        self.I = I
+        self.n_joints = len(self.theta)
 
-        if omega is None:
-            self.omega = np.zeros(self.n_joints)
+        if 'rod_I' in params.keys():
+            self.I = np.array(params['rod_I'])
         else:
-            self.omega = omega
+            self.I = 1/12*self.m*self.l_mag**2
+
+        if 'omega' in params.keys():
+            self.omega = np.array(params['omega'])
+        else:
+            self.omega = np.zeros(self.n_joints)
 
         self.pos = np.empty((self.n_joints, 2))
         self.v = np.empty((self.n_joints, 2))
@@ -52,17 +56,18 @@ class Launcher:
             self.v[i] = v_rod_end + self.c_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
             v_rod_end += self.l_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
 
-        self.r_mag = r_mag
-        self.r = np.array([0.0, self.r_mag])
-        self.m_weight = m_weight
-        self.h = h
-        self.h_rubber_band = h_rubber_band
+        self.m_weight = params['weight_m']
+        self.h = params['weight_h']
+        self.h_rubber_band = params['rubber_band_h']
         self.h_rubber_band_initial = self.h_rubber_band
-        self.k = k
-
-        self.h_weight = h_rubber_band
-        self.v_weight = -np.sqrt(2*g_mag*(self.h-self.h_rubber_band))
+        self.k = params['rubber_band_k']
+        self.r_mag = params['winch_r']
+        self.r = np.array([0.0, self.r_mag])
         self.energy_lost_to_ground = 0.0
+
+        # Weights free fall is not simulated
+        self.h_weight = self.h_rubber_band
+        self.v_weight = -np.sqrt(2*g_mag*(self.h-self.h_rubber_band))
 
         self.pos_history = None
         self.theta_history = None

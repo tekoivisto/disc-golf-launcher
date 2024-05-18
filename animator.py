@@ -5,6 +5,7 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Circle
 import numpy as np
 import cv2
+import yaml
 
 
 class Animator:
@@ -188,22 +189,13 @@ class Animator:
 
 def main():
 
-    n_rods = 4
-    theta = np.full(n_rods, -np.pi/2)
-    l_mag = np.ones(n_rods)
-    c_mag = np.full(n_rods, 0.5)
-    m = np.ones(n_rods)
-    I = np.ones(n_rods)
-    r_mag = 0.3
-    m_weight = 10.0
-    h = 1.0
-    h_rubber_band = 0.5
-    k = 1000.0
+    with open('launcher_params.yaml', 'r') as file:
+        params = yaml.safe_load(file)
 
     dt = 0.001
     T = 5
 
-    launcher = Launcher(theta, l_mag, c_mag, m, I, r_mag, m_weight, h, h_rubber_band, k)
+    launcher = Launcher(params)
     launcher.simulate(dt, T)
 
     print('simulation done, animating video')
