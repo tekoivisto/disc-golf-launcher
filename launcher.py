@@ -18,6 +18,8 @@ class Launcher:
         self.theta1_initial = self.theta[0]
         self.l_mag = l_mag
         self.c_mag = c_mag
+        self.c = None
+        self.d = None
         self.m = m
         self.I = I
 
@@ -57,28 +59,18 @@ class Launcher:
 
     def simulate(self, dt, simulation_length):
 
-        E_start = self.calculate_total_energy()
-
         self.dt = dt
         n_steps = int(simulation_length/dt)
 
-        self.pos_history = np.empty((n_steps+1, self.n_joints, 2))
-        self.theta_history = np.empty((n_steps+1, self.n_joints))
-        self.h_weight_history = np.empty(n_steps+1)
-        self.h_rubber_band_history = np.empty(n_steps+1)
+        self.initialize_history(n_steps)
 
-        self.pos_history[0] = self.pos
-        self.theta_history[0] = self.theta
-        self.h_weight_history[0] = self.h_weight
-        self.h_rubber_band_history[0] = self.h_rubber_band
+        E_start = self.calculate_total_energy()
 
         for i in range(n_steps):
+
             self.step()
 
-            self.pos_history[i+1] = self.pos
-            self.theta_history[i+1] = self.theta
-            self.h_weight_history[i+1] = self.h_weight
-            self.h_rubber_band_history[i+1] = self.h_rubber_band
+            self.update_history(i)
 
         E_end = self.calculate_total_energy()
 
@@ -89,21 +81,39 @@ class Launcher:
 
     def step(self):
 
+        self.check_weight_hitting_ground()
+
+        T = self.calc_T()
+        F = np.zeros(2)
+        N = self.solve_normal_forces(T, F)
+
+        a_weight = g[1] - T[0]/self.m_weight
+        a = self.calc_a_trans(N, T, F)
+        alpha = self.calc_alpha(N, T, F)
+
+        self.euler_step(a_weight, a, alpha)
+
+    def check_weight_hitting_ground(self):
+
         if self.h_weight < 0 and self.v_weight < 0:
             self.energy_lost_to_ground += 0.5*self.m_weight*self.v_weight**2
             self.v_weight = 0
 
+    def calc_T(self):
+
         self.h_rubber_band = self.h_rubber_band_initial - self.r_mag*(self.theta[0]-self.theta1_initial)
+
         if self.h_weight >= self.h_rubber_band:
             T_mag = 0
         else:
             T_mag = self.k*(self.h_rubber_band-self.h_weight)
-        T = np.array([-T_mag, 0])
 
-        F = np.zeros(2)
-        N = self.solve_normal_forces(T, F)
+        return np.array([-T_mag, 0])
 
-        F_tot = np.copy(N)
+    def calc_a_trans(self, N, T, F):
+
+        F_tot = np.zeros((self.n_joints, 2))
+        F_tot += N
         F_tot[:-1] -= N[1:]
         F_tot[0] += T
         F_tot[-1] += F
@@ -111,44 +121,44 @@ class Launcher:
         if self.use_gravity:
             F_tot += self.m.reshape(-1, 1)*g
 
-        a = F_tot / self.m.reshape(-1, 1)
+        return F_tot / self.m.reshape(-1, 1)
 
-        self.pos += self.v*self.dt
-        self.v += a*self.dt
+    def calc_alpha(self, N, T, F):
 
-        a_weight = g[1] + T_mag/self.m_weight
-        self.h_weight += self.v_weight*self.dt
-        if self.h_weight > 0 or a_weight > 0:
-            self.v_weight += a_weight*self.dt
-
-        l = (self.l_mag * np.array([np.cos(self.theta), np.sin(self.theta), np.zeros(self.n_joints)]))
-        c = -self.c_mag/self.l_mag * l
-        d = (self.l_mag - self.c_mag) / self.l_mag * l
-        c = c.T
-        d = d.T
+        c = self.c.T
+        d = self.d.T
 
         N = np.hstack((N, np.zeros((self.n_joints, 1))))
 
         tau = np.cross(c, N)[:, -1]
-        tau[:-1] += - np.cross(d[:-1], N[1:])[:, -1]
+        tau[:-1] -= np.cross(d[:-1], N[1:])[:, -1]
 
         tau[-1] += np.cross(d[-1], np.hstack((F, [0])))[-1]
         tau[0] += np.cross(c[0]+self.r, np.hstack((T, [0])))[-1]
 
-        alpha = tau / self.I
+        return tau / self.I
+
+    def euler_step(self, a_weight, a_trans, alpha):
+
+        self.h_weight += self.v_weight*self.dt
+        if self.h_weight > 0 or a_weight > 0:
+            self.v_weight += a_weight*self.dt
+
+        self.pos += self.v*self.dt
+        self.v += a_trans*self.dt
 
         self.theta += self.omega*self.dt
         self.omega += alpha*self.dt
 
     def solve_normal_forces(self, T, F):
 
-        l = self.l_mag * np.array([np.cos(self.theta), np.sin(self.theta)])
-        c = - self.c_mag / self.l_mag * l
-        d = (self.l_mag - self.c_mag)/self.l_mag * l
-        cx = c[0]
-        cy = c[1]
-        dx = d[0]
-        dy = d[1]
+        unit_vecs = np.array([np.cos(self.theta), np.sin(self.theta), np.zeros(self.n_joints)])
+        self.c = - self.c_mag*unit_vecs
+        self.d = (self.l_mag - self.c_mag) * unit_vecs
+        cx = self.c[0]
+        cy = self.c[1]
+        dx = self.d[0]
+        dy = self.d[1]
 
         px = 1/self.m[:-1] + cy[:-1]*dy[:-1]/self.I[:-1]
         py = 1/self.m[:-1] + cx[:-1]*dx[:-1]/self.I[:-1]
@@ -231,3 +241,22 @@ class Launcher:
 
         return E_tot
 
+    def initialize_history(self, n_steps):
+
+        self.pos_history = np.empty((n_steps+1, self.n_joints, 2))
+        self.theta_history = np.empty((n_steps+1, self.n_joints))
+        self.h_weight_history = np.empty(n_steps+1)
+        self.h_rubber_band_history = np.empty(n_steps+1)
+
+        self.pos_history[0] = self.pos
+        self.theta_history[0] = self.theta
+        self.h_weight_history[0] = self.h_weight
+        self.h_rubber_band_history[0] = self.h_rubber_band
+
+    def update_history(self, idx):
+
+        idx += 1
+        self.pos_history[idx] = self.pos
+        self.theta_history[idx] = self.theta
+        self.h_weight_history[idx] = self.h_weight
+        self.h_rubber_band_history[idx] = self.h_rubber_band
