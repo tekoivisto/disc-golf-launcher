@@ -104,7 +104,7 @@ class Launcher:
         self.v_disc_history = None
         self.omega_disc_history = None
 
-    def simulate(self, dt, simulation_length):
+    def simulate(self, dt, simulation_length, velocity_verlet=True):
 
         self.dt = dt
         n_steps = int(simulation_length/dt)
@@ -113,19 +113,62 @@ class Launcher:
 
         E_start = self.calculate_total_energy()
 
+        if velocity_verlet:
+            step_function = self.velocity_verlet_step
+        else:
+            step_function = self.euler_step
+
         for i in range(n_steps):
 
-            self.step()
+            step_function()
             self.update_history(i)
 
         E_end = self.calculate_total_energy()
 
         print(f'delta E (J):                {E_end-E_start:.3f}')
-        print(f'fractional energy increase: {(E_end-E_start)/E_start:.3e}')
+        print(f'proportional energy chance: {(E_end-E_start)/E_start:.5e}')
 
         return self.pos_history, self.theta_history
 
-    def step(self):
+    def velocity_verlet_step(self):
+
+        self.check_weight_hitting_ground()
+
+        T = self.calc_T()
+        F_drag = self.calc_F_drag()
+        N = self.solve_normal_forces(T, F_drag)
+        a_weight = g[1] - T[0]/self.m_weight
+        a = self.calc_a_trans(N, T, F_drag)
+        alpha = self.calc_alpha(N, T, F_drag)
+
+        # v half step
+        if self.h_weight > 0 or a_weight > 0:
+            self.v_weight = self.v_weight + 0.5*a_weight*self.dt
+        else:
+            self.v_weight = 0
+        self.v = self.v + 0.5*a*self.dt
+        self.omega = self.omega + 0.5*alpha*self.dt
+
+        self.h_weight += self.v_weight*self.dt
+        self.pos += self.v*self.dt
+        self.theta += self.omega*self.dt
+
+        self.check_weight_hitting_ground()
+
+        T = self.calc_T()
+        F_drag_new = self.calc_F_drag()
+        N = self.solve_normal_forces(T, F_drag_new)
+        a_weight = g[1] - T[0]/self.m_weight
+        a = self.calc_a_trans(N, T, F_drag_new)
+        alpha = self.calc_alpha(N, T, F_drag_new)
+
+        self.v_weight += 0.5*a_weight*self.dt
+        self.v += 0.5*a*self.dt
+        self.omega += 0.5*alpha*self.dt
+
+        self.add_energy_lost_to_drag((F_drag+F_drag_new)/2)
+
+    def euler_step(self):
 
         self.check_weight_hitting_ground()
 
@@ -137,7 +180,7 @@ class Launcher:
         a = self.calc_a_trans(N, T, F_drag)
         alpha = self.calc_alpha(N, T, F_drag)
 
-        self.euler_step(a_weight, a, alpha)
+        self.euler_update(a_weight, a, alpha)
 
         self.add_energy_lost_to_drag(F_drag)
 
@@ -196,7 +239,7 @@ class Launcher:
 
         return tau / self.I
 
-    def euler_step(self, a_weight, a_trans, alpha):
+    def euler_update(self, a_weight, a_trans, alpha):
 
         self.h_weight += self.v_weight*self.dt
         if self.h_weight > 0 or a_weight > 0:
