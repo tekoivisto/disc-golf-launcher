@@ -4,6 +4,8 @@ import scipy
 
 g = np.array([0, -9.81])
 g_mag = np.linalg.norm(g)
+# Air
+rho = 1.225
 
 
 def cross_vec(a, b):
@@ -24,25 +26,59 @@ class Launcher:
         self.dt = None
         self.use_gravity = use_gravity
 
-        self.theta = np.deg2rad(np.array(params['theta']))
+        self.theta = np.deg2rad(np.array(params['theta'], dtype=float))
         self.theta1_initial = self.theta[0]
-        self.l_mag = np.array(params['rod_length'])
-        self.c_mag = np.array(params['rod_com'])
+        self.l_mag = np.array(params['rod_length'], dtype=float)
+        self.c_mag = np.array(params['rod_com'], dtype=float)
         self.c = None
         self.d = None
-        self.m = np.array(params['rod_m'])
+        self.m = np.array(params['rod_m'], dtype=float)
         self.mT = self.m.reshape(-1, 1)
         self.n_joints = len(self.theta)
 
         if 'rod_I' in params.keys():
-            self.I = np.array(params['rod_I'])
+            self.I = np.array(params['rod_I'], dtype=float)
         else:
             self.I = 1/12*self.m*self.l_mag**2
 
         if 'omega' in params.keys():
-            self.omega = np.array(params['omega'])
+            self.omega = np.array(params['omega'], dtype=float)
         else:
             self.omega = np.zeros(self.n_joints)
+
+        self.m_weight = params['weight_m']
+        self.h = params['weight_h']
+        self.h_rubber_band = params['rubber_band_h']
+        self.h_rubber_band_initial = self.h_rubber_band
+        self.k = params['rubber_band_k']
+        self.r_mag = params['winch_r']
+        self.r = np.array([0.0, self.r_mag])
+        self.energy_lost_to_ground = 0.0
+
+        # Weights free fall is not simulated, and simulation start when rubber band starts to stretch
+        self.h_weight = self.h_rubber_band
+        self.v_weight = -np.sqrt(2*g_mag*(self.h-self.h_rubber_band))
+
+        self.m_disc = params['disc_m']
+        self.r_disc = params['disc_r']
+        self.I_disc = params['disc_I']
+        self.C_drag = params['disc_C_drag']
+        self.disc_area = np.pi*self.r_disc**2
+        self.energy_lost_to_drag = 0
+
+        self.last_rod_l_mag_initial = self.l_mag[-1]
+        self.last_rod_c_mag_initial = self.c_mag[-1]
+        self.last_rod_m_initial = self.m[-1]
+        self.last_rod_I = self.I[-1]
+
+        # Disc outer rim is fixed to the end of the last rod, and the properties of the last rod are changed accordingly
+        com_new = (self.m[-1]*self.c_mag[-1] + self.m_disc*(self.l_mag[-1]+self.r_disc)) / (self.m[-1]+self.m_disc)
+        # Parallel axis theorem
+        self.I[-1] = (self.I[-1] + self.I_disc
+                      + self.m[-1]*(com_new-self.c_mag[-1])**2 + self.m_disc*(self.l_mag[-1]+self.r_disc-com_new)**2)
+        self.c_mag[-1] = com_new
+        self.l_mag[-1] += self.r_disc
+        self.m[-1] += self.m_disc
 
         self.pos = np.empty((self.n_joints, 2))
         self.v = np.empty((self.n_joints, 2))
@@ -56,23 +92,17 @@ class Launcher:
             self.v[i] = v_rod_end + self.c_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
             v_rod_end += self.l_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
 
-        self.m_weight = params['weight_m']
-        self.h = params['weight_h']
-        self.h_rubber_band = params['rubber_band_h']
-        self.h_rubber_band_initial = self.h_rubber_band
-        self.k = params['rubber_band_k']
-        self.r_mag = params['winch_r']
-        self.r = np.array([0.0, self.r_mag])
-        self.energy_lost_to_ground = 0.0
-
-        # Weights free fall is not simulated
-        self.h_weight = self.h_rubber_band
-        self.v_weight = -np.sqrt(2*g_mag*(self.h-self.h_rubber_band))
+        self.pos_disc = rod_end
+        self.pos_disc_prev = rod_end
+        self.v_disc = np.zeros(2)
 
         self.pos_history = None
         self.theta_history = None
         self.h_weight_history = None
         self.h_rubber_band_history = None
+        self.pos_disc_history = None
+        self.v_disc_history = None
+        self.omega_disc_history = None
 
     def simulate(self, dt, simulation_length):
 
@@ -100,14 +130,16 @@ class Launcher:
         self.check_weight_hitting_ground()
 
         T = self.calc_T()
-        F = np.zeros(2)
-        N = self.solve_normal_forces(T, F)
+        F_drag = self.calc_F_drag()
+        N = self.solve_normal_forces(T, F_drag)
 
         a_weight = g[1] - T[0]/self.m_weight
-        a = self.calc_a_trans(N, T, F)
-        alpha = self.calc_alpha(N, T, F)
+        a = self.calc_a_trans(N, T, F_drag)
+        alpha = self.calc_alpha(N, T, F_drag)
 
         self.euler_step(a_weight, a, alpha)
+
+        self.add_energy_lost_to_drag(F_drag)
 
     def check_weight_hitting_ground(self):
 
@@ -124,7 +156,21 @@ class Launcher:
         else:
             T_mag = self.k*(self.h_rubber_band-self.h_weight)
 
-        return np.array([-T_mag, 0])
+        return np.array([-T_mag, 0.0])
+
+    def calc_F_drag(self):
+
+        self.v_disc = self.v[-1] + self.omega[-1]*np.array([-np.sin(self.theta[-1]), np.cos(self.theta[-1])])
+        v_mag = np.linalg.norm(self.v_disc)
+
+        if v_mag == 0:
+            return np.zeros(2)
+
+        v_hat = self.v_disc/v_mag
+
+        F_drag_mag = 0.5*rho*self.disc_area*self.C_drag*np.sum(self.v_disc**2)
+
+        return -v_hat*F_drag_mag
 
     def calc_a_trans(self, N, T, F):
 
@@ -160,6 +206,18 @@ class Launcher:
 
         self.theta += self.omega*self.dt
         self.omega += alpha*self.dt
+
+    def add_energy_lost_to_drag(self, F_drag):
+
+        self.pos_disc = (self.pos[-1] + (self.l_mag[-1]-self.c_mag[-1])
+                         *np.array([np.cos(self.theta[-1]), np.sin(self.theta[-1])]))
+
+        dx = self.pos_disc-self.pos_disc_prev
+        dW = np.dot(F_drag, dx)
+
+        self.energy_lost_to_drag -= dW
+
+        self.pos_disc_prev = self.pos_disc
 
     def solve_normal_forces(self, T, F):
 
@@ -249,7 +307,7 @@ class Launcher:
         E_trans_rods = 0.5*np.sum(self.m*np.sum(self.v**2, axis=1), axis=0)
         E_rot_rods = 0.5*np.sum(self.I*self.omega**2)
 
-        E_tot = self.energy_lost_to_ground + E_trans_weight + E_pot_weight + E_spring + E_trans_rods + E_rot_rods
+        E_tot = self.energy_lost_to_ground + self.energy_lost_to_drag + E_trans_weight + E_pot_weight + E_spring + E_trans_rods + E_rot_rods
 
         return E_tot
 
@@ -259,11 +317,17 @@ class Launcher:
         self.theta_history = np.empty((n_steps+1, self.n_joints))
         self.h_weight_history = np.empty(n_steps+1)
         self.h_rubber_band_history = np.empty(n_steps+1)
+        self.pos_disc_history = np.empty((n_steps+1, 2))
+        self.v_disc_history = np.empty((n_steps+1, 2))
+        self.omega_disc_history = np.empty((n_steps+1))
 
         self.pos_history[0] = self.pos
         self.theta_history[0] = self.theta
         self.h_weight_history[0] = self.h_weight
         self.h_rubber_band_history[0] = self.h_rubber_band
+        self.pos_disc_history[0] = self.pos_disc
+        self.v_disc_history[0] = self.v_disc
+        self.omega_disc_history[0] = 0
 
     def update_history(self, idx):
 
@@ -272,3 +336,6 @@ class Launcher:
         self.theta_history[idx] = self.theta
         self.h_weight_history[idx] = self.h_weight
         self.h_rubber_band_history[idx] = self.h_rubber_band
+        self.pos_disc_history[idx] = self.pos_disc
+        self.v_disc_history[idx] = self.v_disc
+        self.omega_disc_history[idx] = self.omega[-1]

@@ -13,22 +13,26 @@ class Animator:
     def __init__(self):
 
         self.fig = plt.figure(figsize=(19.2/2, 10.8/2))
-        self.gs = GridSpec(1, 2, figure=self.fig, width_ratios=[1, 2])
+        self.gs = GridSpec(2, 2, figure=self.fig, width_ratios=[1, 2])
+        self.ax_disc_energy = self.fig.add_subplot(self.gs[1, 0])
         self.ax_weight = self.fig.add_subplot(self.gs[0, 0])
-        self.ax_launcher = self.fig.add_subplot(self.gs[0, 1])
+        self.ax_launcher = self.fig.add_subplot(self.gs[:, 1])
+        self.fig.subplots_adjust(wspace=0.15, hspace=0.1)
 
+        self.ax_disc_energy.set_xlabel('time (s)')
+        self.ax_disc_energy.set_ylabel('disc energy (J)')
         self.ax_launcher.set_xlabel('x (m)')
         self.ax_launcher.set_ylabel('y (m)')
         self.ax_launcher.set_aspect('equal')
         self.ax_weight.set_ylabel('height (m)')
         self.ax_weight.set_xticks([])
 
-        self.weight_radius = 0.1
+        self.weight_radius = 0.15
         self.weight_circle = Circle((0, 100), self.weight_radius, color='k')
         self.ax_weight.add_patch(self.weight_circle)
 
         rope_color = 'tab:brown'
-        self.rope_extra_height = 3*self.weight_radius
+        self.rope_extra_height = 2*self.weight_radius
         self.rope_launcher_horizontal = self.ax_launcher.plot([], [], '-', color=rope_color)[0]
         self.rope_weight_horizontal = self.ax_weight.plot([], [], '-', color=rope_color)[0]
         self.rope_pulley = self.ax_weight.plot([], [], '-', color=rope_color)[0]
@@ -41,13 +45,19 @@ class Animator:
         self.rubber_band_start_line = self.ax_weight.plot([], [], '--', color='gray')[0]
         self.rubber_band_marker = self.ax_weight.plot([], [], 'o', color=rubber_band_color, markersize=3)[0]
 
-        self.r_pulley = 0.025
+        self.time_vertical_line = self.ax_disc_energy.plot([], [], '--', color='gray')[0]
+
+        self.r_pulley = 0.04
         self.pulley = Circle((0, 100), self.r_pulley, color='gray')
         self.ax_weight.add_patch(self.pulley)
 
         self.winch = Circle((0, 0), 0, color='gray')
         self.ax_launcher.add_patch(self.winch)
 
+        self.disc = Circle((0, 0), 0, color='tab:blue')
+        self.ax_launcher.add_patch(self.disc)
+
+        self.freefall_time = None
         self.launcher_lines = None
         self.launcher = None
         self.fps = None
@@ -61,14 +71,18 @@ class Animator:
         self.video = self.create_video_writer(video_fname)
 
         n_steps = self.launcher.pos_history.shape[0]
-        frame_jump = int(1 / fps / self.launcher.dt)
-        save_idx = np.array(range(0, n_steps, frame_jump))
+        timestep_jump = int(1 / fps / self.launcher.dt)
+        self.fps_actual = 1/(timestep_jump*self.launcher.dt)
+        save_idx = np.arange(0, n_steps, timestep_jump)
 
         self.launcher_lines = [self.ax_launcher.plot([], [], 'ko-', markersize=3)[0]
                                for _ in range(self.launcher.n_joints)]
         self.launcher_lines[-1].set_marker('')
+        self.disc.set_radius(self.launcher.r_disc)
 
         self.set_ax_lims()
+
+        self.plot_disc_energy()
 
         self.draw_static_objects()
 
@@ -76,6 +90,10 @@ class Animator:
 
         for idx in save_idx:
             self.draw_launcher(idx)
+
+            t = idx*self.launcher.dt + self.freefall_time
+            self.time_vertical_line.set_data([t, t], [0, 1000])
+            self.canvas_to_video_frame()
 
         self.video.release()
 
@@ -125,7 +143,7 @@ class Animator:
 
         return cv2.VideoWriter(video_fname, fourcc, self.fps, (width, height))
 
-    def draw_launcher(self, history_idx, draw_weight=True, save_to_video=True):
+    def draw_launcher(self, history_idx, draw_weight=True):
 
         pos = self.launcher.pos_history[history_idx]
         theta = self.launcher.theta_history[history_idx]
@@ -151,7 +169,10 @@ class Animator:
 
         for i in range(self.launcher.n_joints):
             c_mag = self.launcher.c_mag[i]
-            l_mag = self.launcher.l_mag[i]
+            if i == self.launcher.n_joints-1:
+                l_mag = self.launcher.last_rod_l_mag_initial
+            else:
+                l_mag = self.launcher.l_mag[i]
 
             unit_vec = np.array([np.cos(theta[i]), np.sin(theta[i])])
 
@@ -160,15 +181,17 @@ class Animator:
 
             self.launcher_lines[i].set_data([start[0], end[0]], [[start[1], end[1]]])
 
-        if save_to_video:
-            self.canvas_to_video_frame()
+        self.disc.center = (self.launcher.pos_disc_history[history_idx])
 
     def animate_weight_initial_fall(self):
 
-        self.draw_launcher(0, draw_weight=False, save_to_video=False)
+        self.draw_launcher(0, draw_weight=False)
 
-        t_fall = np.sqrt(2*(self.launcher.h-self.launcher.h_rubber_band_initial)/g_mag)
-        t_fall_steps = np.arange(0, t_fall, 1/self.fps)
+        t_fall_steps = np.arange(0, self.freefall_time, 1/self.fps_actual)
+        delta_last = self.freefall_time-t_fall_steps[-1]
+        t_fall_steps += delta_last
+        t_fall_steps[1:] = t_fall_steps[:-1]
+        t_fall_steps[0] = 0
 
         weight_start_y = self.launcher.h + self.weight_radius
         for t_f in t_fall_steps:
@@ -178,6 +201,9 @@ class Animator:
 
             self.weight_circle.center = (0, weight_y)
 
+            if t_f != 0:
+                self.time_vertical_line.set_data([t_f, t_f], [0, 1000])
+
             self.canvas_to_video_frame()
 
     def canvas_to_video_frame(self):
@@ -186,14 +212,42 @@ class Animator:
         img = cv2.cvtColor(img[:, :, :-1], cv2.COLOR_RGB2BGR)
         self.video.write(img)
 
+    def plot_disc_energy(self):
+
+        v_mag = np.linalg.norm(self.launcher.v_disc_history, axis=1)
+        E_trans = 0.5*self.launcher.m_disc*v_mag**2
+        E_rot = 0.5*self.launcher.I_disc*self.launcher.omega_disc_history**2
+
+        self.freefall_time = np.sqrt(2*(self.launcher.h-self.launcher.h_rubber_band_initial)/g_mag)
+        fall_n_steps = int(self.freefall_time/self.launcher.dt)
+        n_steps = E_trans.shape[0] + fall_n_steps
+        t = np.linspace(0, n_steps*self.launcher.dt, n_steps)
+
+        first_zeros = np.zeros(fall_n_steps)
+        v_mag = np.hstack((first_zeros, v_mag))
+        E_trans = np.hstack((first_zeros, E_trans))
+        E_rot = np.hstack((first_zeros, E_rot))
+
+        E_tot = E_trans + E_rot
+        idx_max = np.argmax(E_tot)
+
+        self.ax_disc_energy.set_xlim([t[0], t[-1]-1/self.fps_actual])
+        self.ax_disc_energy.set_ylim([0, 1.1 * E_tot[idx_max]])
+        # self.ax_disc_energy.plot(t, np.array([E_tot, E_trans, E_rot]).T)
+        self.ax_disc_energy.plot(t, E_tot)
+        self.ax_disc_energy.annotate(f'max velocity:\n{v_mag[idx_max]*3.6:.1f} km/h',
+                                     xy=(t[idx_max], E_tot[idx_max]), xytext=(0.1, 0.8*E_tot[idx_max]),
+                                     arrowprops={'facecolor': 'black', 'width': 0.1, 'headwidth': 5, 'headlength': 7.5,
+                                                 'shrink': 0.15}, fontsize=8)
+
 
 def main():
 
     with open('launcher_params.yaml', 'r') as file:
         params = yaml.safe_load(file)
 
-    dt = 0.001
-    T = 5
+    dt = 0.0001
+    T = 1
 
     launcher = Launcher(params)
     launcher.simulate(dt, T)
@@ -201,7 +255,7 @@ def main():
     print('simulation done, animating video')
 
     animator = Animator()
-    animator.animate(launcher, 'animations/video.mp4')
+    animator.animate(launcher, 'animations/video.mp4', fps=60)
 
 
 if __name__ == '__main__':

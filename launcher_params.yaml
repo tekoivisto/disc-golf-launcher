@@ -1,9 +1,9 @@
 # angles in degrees, rest in SI units
 
-theta: [-90, -90, -90, -90]
-rod_length: [1, 1, 1, 1]
-rod_com: [0.5, 0.5, 0.5, 0.5]
-rod_m: [1, 1, 1, 1]
+theta: [0, -90, -90, -90]
+rod_length: [1, 1, 1, 0.2]
+rod_com: [0.5, 0.5, 0.5, 0.1]
+rod_m: [1, 1, 1, 0.2]
 # optional: rod_I, omega
 
 weight_m: 10.0
@@ -11,3 +11,10 @@ weight_h: 1.0
 rubber_band_h: 0.5
 rubber_band_k: 1500.0
 winch_r: 0.3
+
+# Innova Wraith distance driver
+# data from Giljarhus et al. "Disc golf trajectory modelling combining computational fluid dynamics and rigid body dynamics"
+disc_m: 0.175
+disc_r: 0.1055
+disc_I: 7.465e-03
+disc_C_drag: 4.17e-2
