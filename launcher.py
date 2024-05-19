@@ -160,7 +160,8 @@ class Launcher:
 
     def calc_F_drag(self):
 
-        self.v_disc = self.v[-1] + self.omega[-1]*np.array([-np.sin(self.theta[-1]), np.cos(self.theta[-1])])
+        self.v_disc = (self.v[-1] + (self.l_mag[-1]-self.c_mag[-1])*self.omega[-1]
+                       *np.array([-np.sin(self.theta[-1]), np.cos(self.theta[-1])]))
         v_mag = np.linalg.norm(self.v_disc)
 
         if v_mag == 0:
