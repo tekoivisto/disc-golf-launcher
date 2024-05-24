@@ -6,6 +6,7 @@ from matplotlib.patches import Circle
 import numpy as np
 import cv2
 import yaml
+from time import time
 
 
 class Animator:
@@ -70,7 +71,7 @@ class Animator:
 
         self.video = self.create_video_writer(video_fname)
 
-        n_steps = self.launcher.pos_history.shape[0]
+        n_steps = self.launcher.history['pos'].shape[0]
         timestep_jump = int(1 / fps / self.launcher.dt)
         self.fps_actual = 1/(timestep_jump*self.launcher.dt)
         save_idx = np.arange(0, n_steps, timestep_jump)
@@ -145,12 +146,12 @@ class Animator:
 
     def draw_launcher(self, history_idx, draw_weight=True):
 
-        pos = self.launcher.pos_history[history_idx]
-        theta = self.launcher.theta_history[history_idx]
+        pos = self.launcher.history['pos'][history_idx]
+        theta = self.launcher.history['theta'][history_idx]
 
         if draw_weight:
-            h_weight = self.launcher.h_weight_history[history_idx]
-            h_rubber_band = self.launcher.h_rubber_band_history[history_idx]
+            h_weight = self.launcher.history['h weight'][history_idx]
+            h_rubber_band = self.launcher.history['h rubber band'][history_idx]
             weight_start_y = self.launcher.h + self.weight_radius
             weight_y = h_weight + self.weight_radius
 
@@ -181,7 +182,7 @@ class Animator:
 
             self.launcher_lines[i].set_data([start[0], end[0]], [[start[1], end[1]]])
 
-        self.disc.center = (self.launcher.pos_disc_history[history_idx])
+        self.disc.center = (self.launcher.history['pos disc'][history_idx])
 
     def animate_weight_initial_fall(self):
 
@@ -214,9 +215,9 @@ class Animator:
 
     def plot_disc_energy(self):
 
-        v_mag = np.linalg.norm(self.launcher.v_disc_history, axis=1)
+        v_mag = np.linalg.norm(self.launcher.history['v disc'], axis=1)
         E_trans = 0.5*self.launcher.m_disc*v_mag**2
-        E_rot = 0.5*self.launcher.I_disc*self.launcher.omega_disc_history**2
+        E_rot = 0.5*self.launcher.I_disc*self.launcher.history['omega disc']**2
 
         self.freefall_time = np.sqrt(2*(self.launcher.h-self.launcher.h_rubber_band_initial)/g_mag)
         fall_n_steps = int(self.freefall_time/self.launcher.dt)
@@ -250,9 +251,10 @@ def main():
     T = 1
 
     launcher = Launcher(params)
+    start_time = time()
     launcher.simulate(dt, T)
 
-    print('simulation done, animating video')
+    print(f'simulation done in {time()-start_time:.3f} s\nanimating video')
 
     animator = Animator()
     animator.animate(launcher, 'animations/video.mp4', fps=60)

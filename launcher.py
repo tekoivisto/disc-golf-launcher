@@ -95,16 +95,10 @@ class Launcher:
         self.pos_disc = rod_end
         self.pos_disc_prev = rod_end
         self.v_disc = np.zeros(2)
-
-        self.pos_history = None
-        self.theta_history = None
-        self.h_weight_history = None
-        self.h_rubber_band_history = None
-        self.pos_disc_history = None
-        self.v_disc_history = None
-        self.omega_disc_history = None
         self.F_drag = np.zeros(2)
         self.F_drag_prev = np.zeros(2)
+
+        self.history = {}
 
     def simulate(self, dt, simulation_length, velocity_verlet=True):
 
@@ -351,29 +345,23 @@ class Launcher:
 
     def initialize_history(self, n_steps):
 
-        self.pos_history = np.empty((n_steps+1, self.n_joints, 2))
-        self.theta_history = np.empty((n_steps+1, self.n_joints))
-        self.h_weight_history = np.empty(n_steps+1)
-        self.h_rubber_band_history = np.empty(n_steps+1)
-        self.pos_disc_history = np.empty((n_steps+1, 2))
-        self.v_disc_history = np.empty((n_steps+1, 2))
-        self.omega_disc_history = np.empty((n_steps+1))
+        self.history['h weight'] = np.empty(n_steps+1)
+        self.history['h rubber band'] = np.empty(n_steps+1)
+        self.history['pos'] = np.empty((n_steps+1, self.n_joints, 2))
+        self.history['theta'] = np.empty((n_steps+1, self.n_joints))
+        self.history['pos disc'] = np.empty((n_steps+1, 2))
+        self.history['v disc'] = np.empty((n_steps+1, 2))
+        self.history['omega disc'] = np.empty((n_steps+1))
 
-        self.pos_history[0] = self.pos
-        self.theta_history[0] = self.theta
-        self.h_weight_history[0] = self.h_weight
-        self.h_rubber_band_history[0] = self.h_rubber_band
-        self.pos_disc_history[0] = self.pos_disc
-        self.v_disc_history[0] = self.v_disc
-        self.omega_disc_history[0] = 0
+        self.update_history(-1)
 
     def update_history(self, idx):
 
         idx += 1
-        self.pos_history[idx] = self.pos
-        self.theta_history[idx] = self.theta
-        self.h_weight_history[idx] = self.h_weight
-        self.h_rubber_band_history[idx] = self.h_rubber_band
-        self.pos_disc_history[idx] = self.pos_disc
-        self.v_disc_history[idx] = self.v_disc
-        self.omega_disc_history[idx] = self.omega[-1]
+        self.history['h weight'][idx] = self.h_weight
+        self.history['h rubber band'][idx] = self.h_rubber_band
+        self.history['pos'][idx] = self.pos
+        self.history['theta'][idx] = self.theta
+        self.history['pos disc'][idx] = self.pos_disc
+        self.history['v disc'][idx] = self.v_disc
+        self.history['omega disc'][idx] = self.omega[-1]
