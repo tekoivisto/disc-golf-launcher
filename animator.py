@@ -61,19 +61,20 @@ class Animator:
         self.freefall_time = None
         self.launcher_lines = None
         self.launcher = None
-        self.fps = None
+        self.fps_video = None
+        self.fps_launcher = None
         self.video = None
 
-    def animate(self, launcher, video_fname, fps=30):
+    def animate(self, launcher, video_fname, fps=60):
 
         self.launcher = launcher
-        self.fps = fps
+        self.fps_video = fps
 
         self.video = self.create_video_writer(video_fname)
 
         n_steps = self.launcher.history['pos'].shape[0]
         timestep_jump = int(1 / fps / self.launcher.dt)
-        self.fps_actual = 1/(timestep_jump*self.launcher.dt)
+        self.fps_launcher = 1/(timestep_jump*self.launcher.dt)
         save_idx = np.arange(0, n_steps, timestep_jump)
 
         self.launcher_lines = [self.ax_launcher.plot([], [], 'ko-', markersize=3)[0]
@@ -142,7 +143,7 @@ class Animator:
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
-        return cv2.VideoWriter(video_fname, fourcc, self.fps, (width, height))
+        return cv2.VideoWriter(video_fname, fourcc, self.fps_video, (width, height))
 
     def draw_launcher(self, history_idx, draw_weight=True):
 
@@ -189,7 +190,7 @@ class Animator:
 
         self.draw_launcher(0, draw_weight=False)
 
-        t_fall_steps = np.arange(0, self.freefall_time, 1/self.fps_actual)
+        t_fall_steps = np.arange(0, self.freefall_time, 1/self.fps_launcher)
         delta_last = self.freefall_time-t_fall_steps[-1]
         t_fall_steps += delta_last
         t_fall_steps[1:] = t_fall_steps[:-1]
@@ -233,7 +234,7 @@ class Animator:
         E_tot = E_trans + E_rot
         idx_max = np.argmax(E_tot)
 
-        self.ax_disc_energy.set_xlim([t[0], t[-1]-1/self.fps_actual])
+        self.ax_disc_energy.set_xlim([t[0], t[-1]-1/self.fps_launcher])
         self.ax_disc_energy.set_ylim([0, 1.1 * E_tot[idx_max]])
         # self.ax_disc_energy.plot(t, np.array([E_tot, E_trans, E_rot]).T)
         self.ax_disc_energy.plot(t, E_tot)
@@ -258,7 +259,7 @@ def main():
     print(f'simulation done in {time()-start_time:.3f} s\nanimating video')
 
     animator = Animator()
-    animator.animate(launcher, 'animations/video.mp4', fps=60)
+    animator.animate(launcher, 'animations/video.mp4')
 
 
 if __name__ == '__main__':
