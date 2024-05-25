@@ -357,6 +357,14 @@ class Launcher:
 
         return E_tot
 
+    def calculate_disc_energy(self, history):
+        v_mag = np.linalg.norm(history['v disc'], axis=1)
+        E_trans = 0.5 * self.m_disc * v_mag ** 2
+        E_rot = 0.5 * self.I_disc * history['omega disc'] ** 2
+        E_tot = E_trans + E_rot
+
+        return E_tot, E_trans, E_rot
+
     def initialize_history(self, history, n_steps):
 
         history['h weight'] = np.empty(n_steps)
@@ -407,11 +415,8 @@ class Launcher:
 
     def reset_launch_state(self):
 
-        v_mag = np.linalg.norm(self.history['v disc'], axis=1)
-        E_trans = 0.5*self.m_disc*v_mag**2
-        E_rot = 0.5*self.I_disc*self.history['omega disc']**2
-        E_disc = E_trans + E_rot
-        self.disc_release_timestep = np.argmax(E_disc)
+        E_tot, E_trans, E_rot = self.calculate_disc_energy(self.history)
+        self.disc_release_timestep = np.argmax(E_tot)
 
         self.h_weight = self.history['h weight'][self.disc_release_timestep]
         self.v_weight = self.history['v weight'][self.disc_release_timestep]

@@ -147,8 +147,15 @@ class Animator:
 
     def draw_launcher(self, history_idx, draw_weight=True):
 
-        pos = self.launcher.history['pos'][history_idx]
-        theta = self.launcher.history['theta'][history_idx]
+        release_idx = self.launcher.disc_release_timestep
+        if history_idx <= release_idx:
+            pos = self.launcher.history['pos'][history_idx]
+            theta = self.launcher.history['theta'][history_idx]
+            pos_disc = self.launcher.history['pos disc'][history_idx]
+        else:
+            pos = self.launcher.history_disc_released['pos'][history_idx-release_idx]
+            theta = self.launcher.history_disc_released['theta'][history_idx-release_idx]
+            pos_disc = self.launcher.history_disc_released['pos disc'][history_idx-release_idx]
 
         if draw_weight:
             h_weight = self.launcher.history['h weight'][history_idx]
@@ -172,7 +179,10 @@ class Animator:
         for i in range(self.launcher.n_joints):
             if i == self.launcher.n_joints-1:
                 l_mag = self.launcher.l_mag_last_initial
-                c_mag = self.launcher.c_mag_last_with_disc
+                if history_idx <= release_idx:
+                    c_mag = self.launcher.c_mag_last_with_disc
+                else:
+                    c_mag = self.launcher.c_mag_last_initial
             else:
                 l_mag = self.launcher.l_mag[i]
                 c_mag = self.launcher.c_mag[i]
@@ -184,7 +194,7 @@ class Animator:
 
             self.launcher_lines[i].set_data([start[0], end[0]], [[start[1], end[1]]])
 
-        self.disc.center = (self.launcher.history['pos disc'][history_idx])
+        self.disc.center = pos_disc
 
     def animate_weight_initial_fall(self):
 
@@ -217,9 +227,10 @@ class Animator:
 
     def plot_disc_energy(self):
 
-        v_mag = np.linalg.norm(self.launcher.history['v disc'], axis=1)
-        E_trans = 0.5*self.launcher.m_disc*v_mag**2
-        E_rot = 0.5*self.launcher.I_disc*self.launcher.history['omega disc']**2
+        release_timestep = self.launcher.disc_release_timestep
+
+        E_tot, E_trans, E_rot = self.launcher.calculate_disc_energy(self.launcher.history)
+        E_tot_released, E_trans_released, E_rot_released = self.launcher.calculate_disc_energy(self.launcher.history_disc_released)
 
         self.freefall_time = np.sqrt(2*(self.launcher.h-self.launcher.h_rubber_band_initial)/g_mag)
         fall_n_steps = int(self.freefall_time/self.launcher.dt)
@@ -227,19 +238,23 @@ class Animator:
         t = np.linspace(0, n_steps*self.launcher.dt, n_steps)
 
         first_zeros = np.zeros(fall_n_steps)
-        v_mag = np.hstack((first_zeros, v_mag))
         E_trans = np.hstack((first_zeros, E_trans))
         E_rot = np.hstack((first_zeros, E_rot))
+        E_tot = np.hstack((first_zeros, E_tot))
 
-        E_tot = E_trans + E_rot
-        idx_max = np.argmax(E_tot)
+        v_mag_max = np.linalg.norm(self.launcher.history['v disc'][release_timestep])
+
+        release_timestep += fall_n_steps
 
         self.ax_disc_energy.set_xlim([t[0], t[-1]-1/self.fps_launcher])
-        self.ax_disc_energy.set_ylim([0, 1.1 * E_tot[idx_max]])
+        self.ax_disc_energy.set_ylim([0, 1.1 * E_tot[release_timestep]])
         # self.ax_disc_energy.plot(t, np.array([E_tot, E_trans, E_rot]).T)
-        self.ax_disc_energy.plot(t, E_tot)
-        self.ax_disc_energy.annotate(f'max velocity:\n{v_mag[idx_max]*3.6:.1f} km/h',
-                                     xy=(t[idx_max], E_tot[idx_max]), xytext=(0.1, 0.8*E_tot[idx_max]),
+        self.ax_disc_energy.plot(t[:release_timestep], E_tot[:release_timestep], color='tab:blue')
+        self.ax_disc_energy.plot(t[release_timestep:], E_tot[release_timestep:], '--', color='tab:blue')
+        self.ax_disc_energy.plot(t[release_timestep:], E_tot_released, color='tab:blue')
+
+        self.ax_disc_energy.annotate(f'max velocity:\n{v_mag_max*3.6:.1f} km/h',
+                                     xy=(t[release_timestep], E_tot[release_timestep]), xytext=(0.1, 0.8*E_tot[release_timestep]),
                                      arrowprops={'facecolor': 'black', 'width': 0.1, 'headwidth': 5, 'headlength': 7.5,
                                                  'shrink': 0.15}, fontsize=8)
 
@@ -250,7 +265,7 @@ def main():
         params = yaml.safe_load(file)
 
     dt = 0.0001
-    T = 1
+    T = 1.5
 
     launcher = Launcher(params)
     start_time = time()
