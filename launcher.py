@@ -64,12 +64,12 @@ class Launcher:
         self.I_disc = params['disc_I']
         self.C_drag = params['disc_C_drag']
         self.disc_area = np.pi*self.r_disc**2
-        self.energy_lost_to_drag = 0
+        self.energy_lost_to_drag = 0.0
 
-        self.last_rod_l_mag_initial = self.l_mag[-1]
-        self.last_rod_c_mag_initial = self.c_mag[-1]
-        self.last_rod_m_initial = self.m[-1]
-        self.last_rod_I = self.I[-1]
+        self.c_mag_last_initial = self.c_mag[-1]
+        self.l_mag_last_initial = self.l_mag[-1]
+        self.m_last_initial = self.m[-1]
+        self.I_last_inital = self.I[-1]
 
         # Disc outer rim is fixed to the end of the last rod, and the properties of the last rod are changed accordingly
         com_new = (self.m[-1]*self.c_mag[-1] + self.m_disc*(self.l_mag[-1]+self.r_disc)) / (self.m[-1]+self.m_disc)
@@ -79,6 +79,8 @@ class Launcher:
         self.c_mag[-1] = com_new
         self.l_mag[-1] += self.r_disc
         self.m[-1] += self.m_disc
+        self.disc_attached = True
+        self.c_mag_last_with_disc = self.c_mag[-1]
 
         self.pos = np.empty((self.n_joints, 2))
         self.v = np.empty((self.n_joints, 2))
@@ -99,30 +101,36 @@ class Launcher:
         self.F_drag_prev = np.zeros(2)
 
         self.history = {}
+        self.history_disc_released = {}
+        
+        self.disc_release_timestep = None
 
-    def simulate(self, dt, simulation_length, velocity_verlet=True):
+    def simulate(self, dt, simulation_length, release_disc=True, use_velocity_verlet=True):
 
         self.dt = dt
         n_steps = int(simulation_length/dt)
 
-        self.initialize_history(n_steps)
+        self.initialize_history(self.history, n_steps+1)
+        self.update_history(self.history, 0)
 
         E_start = self.calculate_total_energy()
 
-        if velocity_verlet:
+        if use_velocity_verlet:
             step_function = self.velocity_verlet_step
         else:
             step_function = self.euler_step
 
         for i in range(n_steps):
-
             step_function()
-            self.update_history(i)
+            self.update_history(self.history, i+1)
 
         E_end = self.calculate_total_energy()
 
         print(f'delta E (J):                {E_end-E_start:.3f}')
         print(f'proportional energy chance: {(E_end-E_start)/E_start:.5e}')
+
+        if release_disc:
+            self.simulate_disc_release(dt, use_velocity_verlet)
 
     def velocity_verlet_step(self):
 
@@ -181,6 +189,9 @@ class Launcher:
 
     def calc_F_drag(self):
 
+        if not self.disc_attached:
+            return np.zeros(2)
+        
         self.v_disc = (self.v[-1] + (self.l_mag[-1]-self.c_mag[-1])*self.omega[-1]
                        *np.array([-np.sin(self.theta[-1]), np.cos(self.theta[-1])]))
         v_mag = np.linalg.norm(self.v_disc)
@@ -240,6 +251,9 @@ class Launcher:
         self.omega += alpha*self.dt
 
     def add_energy_lost_to_drag(self, F_drag):
+
+        if not self.disc_attached:
+            return
 
         self.pos_disc = (self.pos[-1] + (self.l_mag[-1]-self.c_mag[-1])
                          *np.array([np.cos(self.theta[-1]), np.sin(self.theta[-1])]))
@@ -343,25 +357,93 @@ class Launcher:
 
         return E_tot
 
-    def initialize_history(self, n_steps):
+    def initialize_history(self, history, n_steps):
 
-        self.history['h weight'] = np.empty(n_steps+1)
-        self.history['h rubber band'] = np.empty(n_steps+1)
-        self.history['pos'] = np.empty((n_steps+1, self.n_joints, 2))
-        self.history['theta'] = np.empty((n_steps+1, self.n_joints))
-        self.history['pos disc'] = np.empty((n_steps+1, 2))
-        self.history['v disc'] = np.empty((n_steps+1, 2))
-        self.history['omega disc'] = np.empty((n_steps+1))
+        history['h weight'] = np.empty(n_steps)
+        history['v weight'] = np.empty(n_steps)
+        history['h rubber band'] = np.empty(n_steps)
+        history['pos'] = np.empty((n_steps, self.n_joints, 2))
+        history['v'] = np.empty((n_steps, self.n_joints, 2))
+        history['theta'] = np.empty((n_steps, self.n_joints))
+        history['omega'] = np.empty((n_steps, self.n_joints))
+        if self.disc_attached:
+            history['pos disc'] = np.empty((n_steps, 2))
+            history['v disc'] = np.empty((n_steps, 2))
+            history['omega disc'] = np.empty((n_steps))
 
-        self.update_history(-1)
+    def update_history(self, history, idx):
 
-    def update_history(self, idx):
+        history['h weight'][idx] = self.h_weight
+        history['v weight'][idx] = self.v_weight
+        history['h rubber band'][idx] = self.h_rubber_band
+        history['pos'][idx] = self.pos
+        history['v'][idx] = self.v
+        history['theta'][idx] = self.theta
+        history['omega'][idx] = self.omega
+        if self.disc_attached:
+            history['pos disc'][idx] = self.pos_disc
+            history['v disc'][idx] = self.v_disc
+            history['omega disc'][idx] = self.omega[-1]
 
-        idx += 1
-        self.history['h weight'][idx] = self.h_weight
-        self.history['h rubber band'][idx] = self.h_rubber_band
-        self.history['pos'][idx] = self.pos
-        self.history['theta'][idx] = self.theta
-        self.history['pos disc'][idx] = self.pos_disc
-        self.history['v disc'][idx] = self.v_disc
-        self.history['omega disc'][idx] = self.omega[-1]
+    def simulate_disc_release(self, dt, use_velocity_verlet=True):
+        
+        self.disc_release_timestep = self.reset_launch_state()
+
+        self.detach_disc()
+
+        n_steps = len(self.history['v disc']) - self.disc_release_timestep
+        self.initialize_history(self.history_disc_released, n_steps)
+        
+        if use_velocity_verlet:
+            step_function = self.velocity_verlet_step
+        else:
+            step_function = self.euler_step
+            
+        for i in range(n_steps):
+            step_function()
+            self.update_history(self.history_disc_released, i)
+
+        self.set_released_disc_history(n_steps, dt)
+
+    def reset_launch_state(self):
+
+        v_mag = np.linalg.norm(self.history['v disc'], axis=1)
+        E_trans = 0.5*self.m_disc*v_mag**2
+        E_rot = 0.5*self.I_disc*self.history['omega disc']**2
+        E_disc = E_trans + E_rot
+        self.disc_release_timestep = np.argmax(E_disc)
+
+        self.h_weight = self.history['h weight'][self.disc_release_timestep]
+        self.v_weight = self.history['v weight'][self.disc_release_timestep]
+        self.h_rubber_band = self.history['h rubber band'][self.disc_release_timestep]
+        self.pos = self.history['pos'][self.disc_release_timestep]
+        self.v = self.history['v'][self.disc_release_timestep]
+        self.theta = self.history['theta'][self.disc_release_timestep]
+        self.omega = self.history['omega'][self.disc_release_timestep]
+        
+        return self.disc_release_timestep
+    
+    def detach_disc(self):
+        
+        self.disc_attached = False
+
+        delta_c = self.c_mag_last_initial - self.c_mag[-1]
+
+        self.c_mag[-1] = self.c_mag_last_initial
+        self.l_mag[-1] = self.l_mag_last_initial
+        self.m[-1] = self.m_last_initial
+        self.I[-1] = self.I_last_inital
+
+        theta = self.theta[-1]
+        self.pos[-1] += delta_c * np.array([np.cos(theta), np.sin(theta)])
+        self.v[-1] += delta_c * self.omega[-1] * np.array([-np.sin(theta), np.cos(theta)])
+
+    def set_released_disc_history(self, n_steps, dt):
+
+        v_disc = self.history['v disc'][self.disc_release_timestep]
+        self.history_disc_released['v disc'] = np.full((n_steps, 2), v_disc)
+        self.history_disc_released['omega disc'] = np.full(n_steps, self.history['omega disc'][self.disc_release_timestep])
+
+        t = np.arange(1, n_steps+1)*dt
+        start_pos = self.history['pos disc'][self.disc_release_timestep]
+        self.history_disc_released['pos disc'] = start_pos + v_disc*t.reshape((-1, 1))

@@ -169,11 +169,12 @@ class Animator:
             self.weight_circle.center = (0, weight_y)
 
         for i in range(self.launcher.n_joints):
-            c_mag = self.launcher.c_mag[i]
             if i == self.launcher.n_joints-1:
-                l_mag = self.launcher.last_rod_l_mag_initial
+                l_mag = self.launcher.l_mag_last_initial
+                c_mag = self.launcher.c_mag_last_with_disc
             else:
                 l_mag = self.launcher.l_mag[i]
+                c_mag = self.launcher.c_mag[i]
 
             unit_vec = np.array([np.cos(theta[i]), np.sin(theta[i])])
 
