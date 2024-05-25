@@ -29,12 +29,17 @@ class Launcher:
         self.theta = np.deg2rad(np.array(params['theta'], dtype=float))
         self.theta1_initial = self.theta[0]
         self.l_mag = np.array(params['rod_length'], dtype=float)
-        self.c_mag = np.array(params['rod_com'], dtype=float)
-        self.c = None
-        self.d = None
+
         self.m = np.array(params['rod_m'], dtype=float)
         self.mT = self.m.reshape(-1, 1)
         self.n_joints = len(self.theta)
+
+        if 'rod_com' in params.keys():
+            self.c_mag = np.array(params['rod_com'], dtype=float)
+        else:
+            self.c_mag = self.l_mag/2
+        self.c = None
+        self.d = None
 
         if 'rod_I' in params.keys():
             self.I = np.array(params['rod_I'], dtype=float)
