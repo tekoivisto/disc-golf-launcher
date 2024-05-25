@@ -86,6 +86,8 @@ class Animator:
 
         self.plot_disc_energy()
 
+        self.draw_disc_trajectory()
+
         self.draw_static_objects()
 
         self.animate_weight_initial_fall()
@@ -257,6 +259,16 @@ class Animator:
                                      xy=(t[release_timestep], E_tot[release_timestep]), xytext=(0.1, 0.8*E_tot[release_timestep]),
                                      arrowprops={'facecolor': 'black', 'width': 0.1, 'headwidth': 5, 'headlength': 7.5,
                                                  'shrink': 0.15}, fontsize=8)
+
+    def draw_disc_trajectory(self):
+
+        release_timestep = self.launcher.disc_release_timestep
+        x = self.launcher.history['pos disc'][:, 0]
+        y = self.launcher.history['pos disc'][:, 1]
+        x[release_timestep:] = self.launcher.history_disc_released['pos disc'][:, 0]
+        y[release_timestep:] = self.launcher.history_disc_released['pos disc'][:, 1]
+
+        self.ax_launcher.plot(x, y, '--', color='gray', linewidth=0.8)
 
 
 def main():
