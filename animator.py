@@ -179,14 +179,13 @@ class Animator:
             self.weight_circle.center = (0, weight_y)
 
         for i in range(self.launcher.n_joints):
+            l_mag = self.launcher.l_mag_initial[i]
             if i == self.launcher.n_joints-1:
-                l_mag = self.launcher.l_mag_last_initial
                 if history_idx <= release_idx:
-                    c_mag = self.launcher.c_mag_last_with_disc
+                    c_mag = self.launcher.c_mag_with_disc[-1]
                 else:
-                    c_mag = self.launcher.c_mag_last_initial
+                    c_mag = self.launcher.c_mag_initial[-1]
             else:
-                l_mag = self.launcher.l_mag[i]
                 c_mag = self.launcher.c_mag[i]
 
             unit_vec = np.array([np.cos(theta[i]), np.sin(theta[i])])

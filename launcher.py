@@ -53,6 +53,7 @@ class Launcher:
 
         self.m_weight = params['weight_m']
         self.h = params['weight_h']
+        self.h_initial = self.h
         self.h_rubber_band = params['rubber_band_h']
         self.h_rubber_band_initial = self.h_rubber_band
         self.k = params['rubber_band_k']
@@ -71,10 +72,10 @@ class Launcher:
         self.disc_area = np.pi*self.r_disc**2
         self.energy_lost_to_drag = 0.0
 
-        self.c_mag_last_initial = self.c_mag[-1]
-        self.l_mag_last_initial = self.l_mag[-1]
-        self.m_last_initial = self.m[-1]
-        self.I_last_inital = self.I[-1]
+        self.c_mag_initial = np.copy(self.c_mag)
+        self.l_mag_initial = np.copy(self.l_mag)
+        self.m_initial = np.copy(self.m)
+        self.I_inital = np.copy(self.I)
 
         # Disc outer rim is fixed to the end of the last rod, and the properties of the last rod are changed accordingly
         com_new = (self.m[-1]*self.c_mag[-1] + self.m_disc*(self.l_mag[-1]+self.r_disc)) / (self.m[-1]+self.m_disc)
@@ -85,7 +86,7 @@ class Launcher:
         self.l_mag[-1] += self.r_disc
         self.m[-1] += self.m_disc
         self.disc_attached = True
-        self.c_mag_last_with_disc = self.c_mag[-1]
+        self.c_mag_with_disc = np.copy(self.c_mag)
 
         self.pos = np.empty((self.n_joints, 2))
         self.v = np.empty((self.n_joints, 2))
@@ -131,11 +132,15 @@ class Launcher:
 
         E_end = self.calculate_total_energy()
 
-        print(f'delta E (J):                {E_end-E_start:.3f}')
-        print(f'proportional energy chance: {(E_end-E_start)/E_start:.5e}')
+        # print(f'delta E (J):                {E_end-E_start:.3f}')
+        # print(f'proportional energy chance: {(E_end-E_start)/E_start:.5e}')
 
         if release_disc:
             self.simulate_disc_release(dt, use_velocity_verlet)
+
+        E_disc, _, _ = self.calculate_disc_energy(self.history)
+
+        return np.amax(E_disc)
 
     def velocity_verlet_step(self):
 
@@ -437,12 +442,12 @@ class Launcher:
         
         self.disc_attached = False
 
-        delta_c = self.c_mag_last_initial - self.c_mag[-1]
+        delta_c = self.c_mag_initial[-1] - self.c_mag[-1]
 
-        self.c_mag[-1] = self.c_mag_last_initial
-        self.l_mag[-1] = self.l_mag_last_initial
-        self.m[-1] = self.m_last_initial
-        self.I[-1] = self.I_last_inital
+        self.c_mag[-1] = self.c_mag_initial[-1]
+        self.l_mag[-1] = self.l_mag_initial[-1]
+        self.m[-1] = self.m_initial[-1]
+        self.I[-1] = self.I_inital[-1]
 
         theta = self.theta[-1]
         self.pos[-1] += delta_c * np.array([np.cos(theta), np.sin(theta)])
