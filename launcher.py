@@ -29,22 +29,27 @@ class Launcher:
         self.theta = np.deg2rad(np.array(params['theta'], dtype=float))
         self.theta1_initial = self.theta[0]
         self.l_mag = np.array(params['rod_length'], dtype=float)
+        self.l_mag = np.append(self.l_mag, params['disc_r']-params['disc_rim_width'])
 
         self.m = np.array(params['rod_m'], dtype=float)
+        self.m = np.append(self.m, params['disc_m'])
         self.mT = self.m.reshape(-1, 1)
         self.n_joints = len(self.theta)
+        self.n_rods = self.n_joints-1
 
         if 'rod_com' in params.keys():
             self.c_mag = np.array(params['rod_com'], dtype=float)
         else:
-            self.c_mag = self.l_mag/2
+            self.c_mag = self.l_mag[:-1]/2
+        self.c_mag = np.append(self.c_mag, params['disc_r']-params['disc_rim_width'])
         self.c = None
         self.d = None
 
         if 'rod_I' in params.keys():
             self.I = np.array(params['rod_I'], dtype=float)
         else:
-            self.I = 1/12*self.m*self.l_mag**2
+            self.I = 1/12*self.m[:-1]*self.l_mag[:-1]**2
+        self.I = np.append(self.I, params['disc_I'])
 
         if 'omega' in params.keys():
             self.omega = np.array(params['omega'], dtype=float)
@@ -72,21 +77,7 @@ class Launcher:
         self.disc_area = np.pi*self.r_disc**2
         self.energy_lost_to_drag = 0.0
 
-        self.c_mag_initial = np.copy(self.c_mag)
-        self.l_mag_initial = np.copy(self.l_mag)
-        self.m_initial = np.copy(self.m)
-        self.I_inital = np.copy(self.I)
-
-        # Disc outer rim is fixed to the end of the last rod, and the properties of the last rod are changed accordingly
-        com_new = (self.m[-1]*self.c_mag[-1] + self.m_disc*(self.l_mag[-1]+self.r_disc)) / (self.m[-1]+self.m_disc)
-        # Parallel axis theorem
-        self.I[-1] = (self.I[-1] + self.I_disc
-                      + self.m[-1]*(com_new-self.c_mag[-1])**2 + self.m_disc*(self.l_mag[-1]+self.r_disc-com_new)**2)
-        self.c_mag[-1] = com_new
-        self.l_mag[-1] += self.r_disc
-        self.m[-1] += self.m_disc
         self.disc_attached = True
-        self.c_mag_with_disc = np.copy(self.c_mag)
 
         self.pos = np.empty((self.n_joints, 2))
         self.v = np.empty((self.n_joints, 2))
@@ -100,8 +91,8 @@ class Launcher:
             self.v[i] = v_rod_end + self.c_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
             v_rod_end += self.l_mag[i]*self.omega[i]*np.array([-np.sin(theta_i), np.cos(theta_i)])
 
-        self.pos_disc = rod_end
-        self.pos_disc_prev = rod_end
+        self.pos_disc = self.pos[-1]
+        self.pos_disc_prev = self.pos[-1]
         self.v_disc = np.zeros(2)
         self.F_drag = np.zeros(2)
         self.F_drag_prev = np.zeros(2)
@@ -133,7 +124,7 @@ class Launcher:
         E_end = self.calculate_total_energy()
 
         # print(f'delta E (J):                {E_end-E_start:.3f}')
-        # print(f'proportional energy chance: {(E_end-E_start)/E_start:.5e}')
+        # print(f'proportional energy change: {(E_end-E_start)/E_start:.5e}')
 
         if release_disc:
             self.simulate_disc_release(dt, use_velocity_verlet)
@@ -202,8 +193,7 @@ class Launcher:
         if not self.disc_attached:
             return np.zeros(2)
         
-        self.v_disc = (self.v[-1] + (self.l_mag[-1]-self.c_mag[-1])*self.omega[-1]
-                       *np.array([-np.sin(self.theta[-1]), np.cos(self.theta[-1])]))
+        self.v_disc = self.v[-1]
         v_mag = np.linalg.norm(self.v_disc)
 
         if v_mag == 0:
@@ -265,15 +255,14 @@ class Launcher:
         if not self.disc_attached:
             return
 
-        self.pos_disc = (self.pos[-1] + (self.l_mag[-1]-self.c_mag[-1])
-                         *np.array([np.cos(self.theta[-1]), np.sin(self.theta[-1])]))
+        self.pos_disc = self.pos[-1]
 
         dx = self.pos_disc-self.pos_disc_prev
         dW = np.dot(F_drag, dx)
 
         self.energy_lost_to_drag -= dW
 
-        self.pos_disc_prev = self.pos_disc
+        self.pos_disc_prev = np.copy(self.pos_disc)
 
     def solve_normal_forces(self, T, F):
 
@@ -439,19 +428,19 @@ class Launcher:
         return self.disc_release_timestep
     
     def detach_disc(self):
-        
+
         self.disc_attached = False
 
-        delta_c = self.c_mag_initial[-1] - self.c_mag[-1]
-
-        self.c_mag[-1] = self.c_mag_initial[-1]
-        self.l_mag[-1] = self.l_mag_initial[-1]
-        self.m[-1] = self.m_initial[-1]
-        self.I[-1] = self.I_inital[-1]
-
-        theta = self.theta[-1]
-        self.pos[-1] += delta_c * np.array([np.cos(theta), np.sin(theta)])
-        self.v[-1] += delta_c * self.omega[-1] * np.array([-np.sin(theta), np.cos(theta)])
+        self.theta = self.theta[:-1]
+        self.l_mag = self.l_mag[:-1]
+        self.c_mag = self.c_mag[:-1]
+        self.m = self.m[:-1]
+        self.mT = self.mT[:-1]
+        self.I = self.I[:-1]
+        self.pos = self.pos[:-1]
+        self.v = self.v[:-1]
+        self.omega = self.omega[:-1]
+        self.n_joints -= 1
 
     def set_released_disc_history(self, n_steps, dt):
 

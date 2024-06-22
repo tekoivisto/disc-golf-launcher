@@ -78,7 +78,7 @@ class Animator:
         save_idx = np.arange(0, n_steps, timestep_jump)
 
         self.launcher_lines = [self.ax_launcher.plot([], [], 'ko-', markersize=3)[0]
-                               for _ in range(self.launcher.n_joints)]
+                               for _ in range(self.launcher.n_rods)]
         self.launcher_lines[-1].set_marker('')
         self.disc.set_radius(self.launcher.r_disc)
 
@@ -150,7 +150,8 @@ class Animator:
     def draw_launcher(self, history_idx, draw_weight=True):
 
         release_idx = self.launcher.disc_release_timestep
-        if history_idx <= release_idx:
+
+        if self.launcher.disc_attached or history_idx <= release_idx:
             pos = self.launcher.history['pos'][history_idx]
             theta = self.launcher.history['theta'][history_idx]
             pos_disc = self.launcher.history['pos disc'][history_idx]
@@ -178,15 +179,9 @@ class Animator:
 
             self.weight_circle.center = (0, weight_y)
 
-        for i in range(self.launcher.n_joints):
-            l_mag = self.launcher.l_mag_initial[i]
-            if i == self.launcher.n_joints-1:
-                if history_idx <= release_idx:
-                    c_mag = self.launcher.c_mag_with_disc[-1]
-                else:
-                    c_mag = self.launcher.c_mag_initial[-1]
-            else:
-                c_mag = self.launcher.c_mag[i]
+        for i in range(self.launcher.n_rods):
+            l_mag = self.launcher.l_mag[i]
+            c_mag = self.launcher.c_mag[i]
 
             unit_vec = np.array([np.cos(theta[i]), np.sin(theta[i])])
 
@@ -228,10 +223,8 @@ class Animator:
 
     def plot_disc_energy(self):
 
-        release_timestep = self.launcher.disc_release_timestep
 
         E_tot, E_trans, E_rot = self.launcher.calculate_disc_energy(self.launcher.history)
-        E_tot_released, E_trans_released, E_rot_released = self.launcher.calculate_disc_energy(self.launcher.history_disc_released)
 
         self.freefall_time = np.sqrt(2*(self.launcher.h-self.launcher.h_rubber_band_initial)/g_mag)
         fall_n_steps = int(self.freefall_time/self.launcher.dt)
@@ -243,16 +236,25 @@ class Animator:
         E_rot = np.hstack((first_zeros, E_rot))
         E_tot = np.hstack((first_zeros, E_tot))
 
-        v_mag_max = np.linalg.norm(self.launcher.history['v disc'][release_timestep])
-
-        release_timestep += fall_n_steps
-
         self.ax_disc_energy.set_xlim([t[0], t[-1]-1/self.fps_launcher])
-        self.ax_disc_energy.set_ylim([0, 1.1 * E_tot[release_timestep]])
-        # self.ax_disc_energy.plot(t, np.array([E_tot, E_trans, E_rot]).T)
-        self.ax_disc_energy.plot(t[:release_timestep], E_tot[:release_timestep], color='tab:blue')
-        self.ax_disc_energy.plot(t[release_timestep:], E_tot[release_timestep:], '--', color='tab:blue')
-        self.ax_disc_energy.plot(t[release_timestep:], E_tot_released, color='tab:blue')
+        self.ax_disc_energy.set_ylim([0, 1.1 * E_tot.max()])
+        if self.launcher.disc_attached:
+            release_timestep = np.argmax(E_tot)
+            v_mag_max = np.linalg.norm(self.launcher.history['v disc'][release_timestep])
+            self.ax_disc_energy.plot(t, E_tot, color='tab:blue')
+            self.ax_disc_energy.plot(t, np.array([E_trans, E_rot]).T)
+
+        else:
+            release_timestep = self.launcher.disc_release_timestep
+            release_timestep += fall_n_steps
+            v_mag_max = np.linalg.norm(self.launcher.history['v disc'][release_timestep])
+
+            E_tot_released, E_trans_released, E_rot_released = self.launcher.calculate_disc_energy(self.launcher.history_disc_released)
+
+            self.ax_disc_energy.plot(t[:release_timestep], E_tot[:release_timestep], color='tab:blue')
+            self.ax_disc_energy.plot(t[release_timestep:], E_tot[release_timestep:], '--', color='tab:blue')
+            self.ax_disc_energy.plot(t[release_timestep:], E_tot_released, color='tab:blue')
+            self.ax_disc_energy.plot(t, np.array([E_trans, E_rot]).T)
 
         self.ax_disc_energy.annotate(f'max velocity:\n{v_mag_max*3.6:.1f} km/h',
                                      xy=(t[release_timestep], E_tot[release_timestep]), xytext=(0.1, 0.8*E_tot[release_timestep]),
@@ -261,11 +263,12 @@ class Animator:
 
     def draw_disc_trajectory(self):
 
-        release_timestep = self.launcher.disc_release_timestep
         x = self.launcher.history['pos disc'][:, 0]
         y = self.launcher.history['pos disc'][:, 1]
-        x[release_timestep:] = self.launcher.history_disc_released['pos disc'][:, 0]
-        y[release_timestep:] = self.launcher.history_disc_released['pos disc'][:, 1]
+        if not self.launcher.disc_attached:
+            release_timestep = self.launcher.disc_release_timestep
+            x[release_timestep:] = self.launcher.history_disc_released['pos disc'][:, 0]
+            y[release_timestep:] = self.launcher.history_disc_released['pos disc'][:, 1]
 
         self.ax_launcher.plot(x, y, '--', color='gray', linewidth=0.8)
 

@@ -1,8 +1,8 @@
 # angles in degrees, rest in SI units
 
-theta: [0, -90, -90, -90]
-rod_length: [1, 1, 1, 0.2]
-rod_m: [1, 1, 1, 0.2]
+theta: [0, -90, -90, -90, -90]
+rod_length: [1, 1, 1, 0.5]
+rod_m: [1, 1, 1, 0.5]
 # optional: rod_com, rod_I, omega
 
 weight_m: 10.0
@@ -15,5 +15,6 @@ winch_r: 0.3
 # data from Giljarhus et al. "Disc golf trajectory modelling combining computational fluid dynamics and rigid body dynamics"
 disc_m: 0.175
 disc_r: 0.1055
+disc_rim_width: 0.021
 disc_I: 7.465e-03
 disc_C_drag: 4.17e-2
