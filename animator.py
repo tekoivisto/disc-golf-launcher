@@ -223,7 +223,6 @@ class Animator:
 
     def plot_disc_energy(self):
 
-
         E_tot, E_trans, E_rot = self.launcher.calculate_disc_energy(self.launcher.history)
 
         self.freefall_time = np.sqrt(2*(self.launcher.h-self.launcher.h_rubber_band_initial)/g_mag)
@@ -240,21 +239,26 @@ class Animator:
         self.ax_disc_energy.set_ylim([0, 1.1 * E_tot.max()])
         if self.launcher.disc_attached:
             release_timestep = np.argmax(E_tot)
-            v_mag_max = np.linalg.norm(self.launcher.history['v disc'][release_timestep])
+            v_mag_max = np.linalg.norm(self.launcher.history['v disc'][release_timestep-fall_n_steps])
+
             self.ax_disc_energy.plot(t, E_tot, color='tab:blue')
-            self.ax_disc_energy.plot(t, np.array([E_trans, E_rot]).T)
+            self.ax_disc_energy.plot(t, E_trans, color='tab:red')
+            self.ax_disc_energy.plot(t, E_rot, color='tab:green')
 
         else:
             release_timestep = self.launcher.disc_release_timestep
-            release_timestep += fall_n_steps
             v_mag_max = np.linalg.norm(self.launcher.history['v disc'][release_timestep])
 
             E_tot_released, E_trans_released, E_rot_released = self.launcher.calculate_disc_energy(self.launcher.history_disc_released)
 
+            release_timestep += fall_n_steps
             self.ax_disc_energy.plot(t[:release_timestep], E_tot[:release_timestep], color='tab:blue')
             self.ax_disc_energy.plot(t[release_timestep:], E_tot[release_timestep:], '--', color='tab:blue')
             self.ax_disc_energy.plot(t[release_timestep:], E_tot_released, color='tab:blue')
-            self.ax_disc_energy.plot(t, np.array([E_trans, E_rot]).T)
+            self.ax_disc_energy.plot(t[:release_timestep], E_trans[:release_timestep], color='tab:red')
+            self.ax_disc_energy.plot(t[release_timestep:], E_trans[release_timestep:], '--', color='tab:red')
+            self.ax_disc_energy.plot(t[:release_timestep], E_rot[:release_timestep], color='tab:green')
+            self.ax_disc_energy.plot(t[release_timestep:], E_rot[release_timestep:], '--', color='tab:green')
 
         self.ax_disc_energy.annotate(f'max velocity:\n{v_mag_max*3.6:.1f} km/h',
                                      xy=(t[release_timestep], E_tot[release_timestep]), xytext=(0.1, 0.8*E_tot[release_timestep]),
