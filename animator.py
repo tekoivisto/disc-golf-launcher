@@ -151,7 +151,7 @@ class Animator:
 
         release_idx = self.launcher.disc_release_timestep
 
-        if self.launcher.disc_attached or history_idx <= release_idx:
+        if self.launcher.disc_attached or history_idx < release_idx:
             pos = self.launcher.history['pos'][history_idx]
             theta = self.launcher.history['theta'][history_idx]
             pos_disc = self.launcher.history['pos disc'][history_idx]
