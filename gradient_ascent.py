@@ -67,10 +67,19 @@ class GradientAscentOptimizer:
     def calculate_gradient(self, params_array):
 
         params_with_delta = []
+        deltas_proportional = np.empty(len(params_array))
         for i in range(self.n_opt_params):
             params = np.copy(params_array)
-            params[i] += self.delta
+
+            if i < self.launcher_n_rods:
+                val = 180
+            else:
+                val = params[i]
+            delta_proportional = val*self.delta
+
+            params[i] += delta_proportional
             params_with_delta.append(params)
+            deltas_proportional[i] = delta_proportional
 
         pool = multiprocessing.Pool(8)
         E_all = pool.map(self.calc_E_disc, [params_array]+params_with_delta)
@@ -81,7 +90,7 @@ class GradientAscentOptimizer:
         E_with_delta = np.array(E_all[1:], dtype=float)
 
         delta_E = E_with_delta - E_start
-        gradient = delta_E / self.delta
+        gradient = delta_E / deltas_proportional
 
         return gradient, E_start
 
