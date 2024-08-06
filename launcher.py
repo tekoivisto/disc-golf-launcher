@@ -26,7 +26,7 @@ class Launcher:
         self.dt = None
         self.use_gravity = use_gravity
 
-        self.theta = np.deg2rad(np.array(params['theta'], dtype=float))
+        self.theta = np.array(params['theta'], dtype=float)
         self.theta1_initial = self.theta[0]
         self.l_mag = np.array(params['rod_length'], dtype=float)
         self.l_mag = np.append(self.l_mag, params['disc_r']-params['disc_rim_width'])
@@ -61,7 +61,7 @@ class Launcher:
         self.h_initial = self.h
         self.h_rubber_band = params['rubber_band_h']
         self.h_rubber_band_initial = self.h_rubber_band
-        self.k = params['rubber_band_k']
+        self.k = params['rubber_band_k']*1000  # input k is around the same range as other variables, which help with gradient ascent
         self.r_mag = params['winch_r']
         self.r = np.array([0.0, self.r_mag])
         self.energy_lost_to_ground = 0.0

@@ -17,6 +17,7 @@ class GradientAscentOptimizer:
         self.n_opt_params = None
         self.launcher_n_rods = None
 
+        self.learning_rate = None
         self.delta = None
         self.dt = None
         self.simulation_length = None
@@ -26,11 +27,12 @@ class GradientAscentOptimizer:
         self.save_dir = None
         self.opt_history = {}
 
-    def optimize(self, launcher_params, n_epochs, learning_rate=0.0001, delta=1e-3, dt=0.001, simulation_length=1.5,
+    def optimize(self, launcher_params, n_epochs, learning_rate=0.0002, delta=1e-04, dt=0.0001, simulation_length=1.5,
                  save_dir='optimization_run'):
 
         self.initial_params = launcher_params
         self.launcher_n_rods = len(launcher_params['rod_length'])
+        self.learning_rate = learning_rate
         self.delta = delta
         self.dt = dt
         self.simulation_length = simulation_length
@@ -45,41 +47,40 @@ class GradientAscentOptimizer:
         E_history = np.empty(n_epochs+1)
 
         for i in range(n_epochs):
+
             gradient, E_start = self.calculate_gradient(params_array)
+
+            print(f'epoch {i}')
+            print(f'disc energy: {E_start:.3f} J')
+            print()
 
             E_history[i] = E_start
             self.save_epoch(params_array, E_start, i)
 
-            params_array += learning_rate*gradient
-            params_array = self.params_min_value_check(params_array)
+            params_array_new = params_array + self.learning_rate * gradient
 
-            print(i+1)
-            print(E_start)
-            print()
+            params_array = self.params_max_change_check(params_array, params_array_new)
+            params_array = self.params_min_value_check(params_array)
 
         E_final = self.calc_E_disc(params_array)
         E_history[n_epochs] = E_final
         self.save_epoch(params_array, E_final, n_epochs)
         self.save_opt_history()
 
+        print(f'epoch {n_epochs}')
+        print(f'disc energy: {E_final:.3f} J')
+        print()
+
         return E_history, self.params_array_to_dict(params_array, include_all=True)
 
     def calculate_gradient(self, params_array):
 
         params_with_delta = []
-        deltas_proportional = np.empty(len(params_array))
         for i in range(self.n_opt_params):
             params = np.copy(params_array)
 
-            if i < self.launcher_n_rods:
-                val = 180
-            else:
-                val = params[i]
-            delta_proportional = val*self.delta
-
-            params[i] += delta_proportional
+            params[i] += self.delta
             params_with_delta.append(params)
-            deltas_proportional[i] = delta_proportional
 
         pool = multiprocessing.Pool(8)
         E_all = pool.map(self.calc_E_disc, [params_array]+params_with_delta)
@@ -90,7 +91,7 @@ class GradientAscentOptimizer:
         E_with_delta = np.array(E_all[1:], dtype=float)
 
         delta_E = E_with_delta - E_start
-        gradient = delta_E / deltas_proportional
+        gradient = delta_E / self.delta
 
         return gradient, E_start
 
@@ -150,6 +151,21 @@ class GradientAscentOptimizer:
 
         return param_array
 
+    def params_max_change_check(self, old_params_array, new_params_array):
+        """Limits the maximum change in a parameter during a single epoch. The derivative of disc energy is
+        discontinuous due weight hitting ground. The numerical gradients are occasionally very large, possibly caused by
+        the discontinuity."""
+
+        max_prop_change = 100 * self.learning_rate
+
+        idx_positive = (new_params_array-old_params_array)/old_params_array > max_prop_change
+        idx_negative = (old_params_array-new_params_array)/old_params_array > max_prop_change
+
+        new_params_array[idx_positive] = old_params_array[idx_positive]*(1+max_prop_change)
+        new_params_array[idx_negative] = old_params_array[idx_negative]*(1-max_prop_change)
+
+        return new_params_array
+
     def init_opt_history(self, n_epochs):
 
         for key in ['theta', 'rod_length', 'rod_m']:
@@ -182,14 +198,14 @@ class GradientAscentOptimizer:
 
 
 def main():
-    dt = 0.001
-    T = 1.5
+    dt = 0.0001
+    T = 1
 
     with open('launcher_params.yaml', 'r') as file:
         params = yaml.safe_load(file)
 
     optimizer = GradientAscentOptimizer()
-    E_history, opt_params = optimizer.optimize(params, n_epochs=40, dt=dt, simulation_length=T)
+    E_history, opt_params = optimizer.optimize(params, n_epochs=200, dt=dt, simulation_length=T)
     print(opt_params)
 
     launcher = Launcher(opt_params)
